@@ -166,9 +166,47 @@ bajo la 4.2.0. Esa suposición, que el formato era la variable, es justo la que
 el probe refutó.
 
 Coste de añadirla: un segundo runtime conviviendo con Bergamot
-(transformers.js + onnxruntime wasm) más el modelo, del orden de 60-70 MB sobre
-los 21 MB actuales. Y `whisper-tiny` transcribe con bastantes errores, que
-luego se traducen: los fallos se acumulan.
+(transformers.js + onnxruntime wasm) más el modelo.
+
+**Pero cargar no es lo mismo que servir.** `accuracy.mjs` mide la transcripción
+real contra frases de referencia sintetizadas con espeak-ng:
+
+```
+onnx-community/whisper-tiny  ~ 45 MB  WER 1485%  0.76x tiempo real
+onnx-community/whisper-base  ~150 MB  WER   45%  0.36x tiempo real
+```
+
+`tiny` no es "impreciso", está roto: entra en bucles degenerados.
+
+```
+esperado : Necesito un médico porque me duele mucho la cabeza.
+obtenido : y así como un médico.com.com.com.com.com.com.com… (×100)
+
+esperado : Por favor, ¿podría repetir eso más despacio?
+obtenido : Por favor, por favor, y por favor, y por favor… (×80)
+```
+
+`base` es utilizable a ratos, y falla de formas que importan:
+
+```
+WER   0% : Necesito un médico porque me duele mucho la cabeza.   (exacta)
+WER  38% : ¿Dónde está la estación de tren más cercana?
+           → "donde está la estación de más cerca"
+WER  45% : El clima está muy agradable hoy y quiero salir a caminar.
+           → "el clima está muy agarrado y que os alegra caminar"
+WER 100% : ¿Cuánto cuesta el billete de autobús hasta el centro?
+           → "1.2 LVFFFU"
+```
+
+Sobre la validez de la medición: el audio es sintético y está fuera de la
+distribución de entrenamiento de Whisper, así que estos WER son **peores** que
+con voz humana. Pero el audio no es el culpable de todo — `base` transcribió una
+frase de forma **exacta**, lo que demuestra que es inteligible para el modelo.
+
+Conclusión: `tiny` queda descartado sin matices. `base` significa ~150 MB — siete
+veces la app actual — corriendo en un solo hilo en móvil, y sus errores luego se
+traducen, así que se acumulan. Medir con voz real en el dispositivo de destino
+es el siguiente paso antes de construir nada.
 
 La **lectura en voz alta** sí está, vía `speechSynthesis`: cero bytes, pero
 depende de las voces instaladas en el sistema. Ajustes indica cuáles faltan.
