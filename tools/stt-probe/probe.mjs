@@ -35,7 +35,7 @@ let up = false
 let lastError = "(sin intentos)"
 for (let i = 0; i < 80 && !up; i++) {
   try {
-    up = (await fetch("http://127.0.0.1:4190/")).ok
+    up = (await fetch("http://127.0.0.1:4192/")).ok
   } catch (error) {
     lastError = error?.cause?.message ?? error?.message ?? String(error)
   }

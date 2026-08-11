@@ -1,5 +1,10 @@
 // Static server with cross-origin isolation, so the probe runs under the same
 // headers the real app uses.
+//
+// The port matters: the Fetch standard maintains a list of blocked ports, and
+// both browsers and Node's fetch refuse them outright with "bad port". 4190
+// (ManageSieve) is on that list — curl is not, which is exactly why it looked
+// fine locally and failed under fetch.
 import { createServer } from "node:http"
 import { readFile } from "node:fs/promises"
 import { extname, join, normalize } from "node:path"
@@ -25,4 +30,4 @@ createServer(async (req, res) => {
     console.error("[server] no pudo escuchar:", error.message)
     process.exit(1)
   })
-  .listen(4190, "127.0.0.1", () => console.log("[server] escuchando en 4190"))
+  .listen(4192, "127.0.0.1", () => console.log("[server] escuchando en 4192"))
