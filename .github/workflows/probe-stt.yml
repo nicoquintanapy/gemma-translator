@@ -26,6 +26,18 @@ jobs:
           npm install
           npx playwright install --with-deps chromium
 
-      - name: Run probe
+      - name: Run liveness probe
         working-directory: tools/stt-probe
         run: node probe.mjs
+
+      # espeak-ng gives speech with known ground truth, so accuracy is measured
+      # rather than eyeballed. It is synthetic and harder than a human voice,
+      # so the error rates are an upper bound.
+      - name: Install speech synthesiser
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+
+      - name: Measure transcription accuracy
+        working-directory: tools/stt-probe
+        run: |
+          node make-audio.mjs
+          node accuracy.mjs
