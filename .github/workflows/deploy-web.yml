@@ -47,6 +47,11 @@ jobs:
         working-directory: web
         run: npm ci
 
+      # Cache keys may not contain commas, and the language list is
+      # comma-separated, so it is turned into a slug first.
+      - name: Compute model cache key
+        run: echo "MODEL_SLUG=$(echo "$TRANSLATION_LANGUAGES" | tr ',' '-')" >> "$GITHUB_ENV"
+
       # The models are a couple of hundred megabytes fetched from Google Cloud
       # Storage. They never change for a given language set, so cache them and
       # let prepare-assets skip whatever is already on disk.
@@ -54,7 +59,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: web/public/models
-          key: models-${{ env.TRANSLATION_LANGUAGES }}-${{ hashFiles('web/scripts/prepare-assets.mjs') }}
+          key: models-${{ env.MODEL_SLUG }}-${{ hashFiles('web/scripts/prepare-assets.mjs') }}
 
       - name: Build
         working-directory: web
