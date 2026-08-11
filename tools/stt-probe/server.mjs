@@ -20,4 +20,9 @@ createServer(async (req, res) => {
     res.writeHead(404)
     res.end("not found")
   }
-}).listen(4190, "127.0.0.1")
+})
+  .on("error", (error) => {
+    console.error("[server] no pudo escuchar:", error.message)
+    process.exit(1)
+  })
+  .listen(4190, "127.0.0.1", () => console.log("[server] escuchando en 4190"))

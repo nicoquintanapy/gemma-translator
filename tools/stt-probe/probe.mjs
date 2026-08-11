@@ -24,17 +24,26 @@ const CANDIDATES = [
   { repo: "Xenova/whisper-tiny", dtype: "q8" },
 ]
 
-const server = spawn(process.execPath, ["server.mjs"], { cwd: process.cwd(), stdio: "ignore" })
+// Nunca "ignore": si el servidor no arranca, su error es justo el dato que
+// hace falta, y silenciarlo obliga a adivinar.
+const server = spawn(process.execPath, ["server.mjs"], { cwd: process.cwd(), stdio: "pipe" })
+server.stdout.on("data", (d) => process.stdout.write(`[server] ${d}`))
+server.stderr.on("data", (d) => process.stdout.write(`[server:err] ${d}`))
+server.on("exit", (code) => console.log(`[server] terminó con código ${code}`))
 
 let up = false
+let lastError = "(sin intentos)"
 for (let i = 0; i < 80 && !up; i++) {
   try {
     up = (await fetch("http://127.0.0.1:4190/")).ok
-  } catch {}
+  } catch (error) {
+    lastError = error?.cause?.message ?? error?.message ?? String(error)
+  }
   if (!up) await new Promise((r) => setTimeout(r, 250))
 }
 if (!up) {
-  console.log("probe server did not start")
+  console.log(`el servidor de prueba no respondió. Último error: ${lastError}`)
+  server.kill("SIGKILL")
   process.exit(1)
 }
 
