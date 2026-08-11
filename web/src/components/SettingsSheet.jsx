@@ -4,7 +4,12 @@ import {
   STT_MODELS,
   TRANSLATION_ENGINES,
 } from "../lib/engineConfig.js"
-import { clearModelCache, formatBytes, getStorageEstimate } from "../lib/storage.js"
+import {
+  clearModelCache,
+  formatBytes,
+  getPartialDownloadBytes,
+  getStorageEstimate,
+} from "../lib/storage.js"
 import { LANGUAGES } from "../lib/languages.js"
 import { isSpeechSupported, listMissingVoices } from "../lib/tts.js"
 
@@ -19,10 +24,12 @@ export default function SettingsSheet({
 }) {
   const [estimate, setEstimate] = useState(null)
   const [voices, setVoices] = useState({ missing: [], total: 0 })
+  const [partialBytes, setPartialBytes] = useState(0)
 
   useEffect(() => {
     if (!open) return
     getStorageEstimate().then(setEstimate)
+    getPartialDownloadBytes().then(setPartialBytes)
     setVoices(listMissingVoices(LANGUAGES))
   }, [open])
 
@@ -190,6 +197,12 @@ export default function SettingsSheet({
               <dt>Persistente</dt>
               <dd>{persisted ? "Sí" : "No garantizado"}</dd>
             </div>
+            {partialBytes > 0 && (
+              <div>
+                <dt>Descarga a medias</dt>
+                <dd>{formatBytes(partialBytes)}</dd>
+              </div>
+            )}
           </dl>
           {!persisted && (
             <p className="note note-warn">

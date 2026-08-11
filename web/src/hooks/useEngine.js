@@ -138,7 +138,7 @@ export function useEngine({ device, sttSize, enableVoice, translationEngine }) {
       // common cause is being offline during the one step that needs network.
       setError(
         /failed to fetch|networkerror|err_/i.test(message)
-          ? `Se interrumpió la descarga. Reintentar continúa desde donde quedó: los archivos ya completos no se vuelven a bajar. (${message})`
+          ? `Se interrumpió la descarga. Reintentar continúa desde el byte exacto en el que se cortó. (${message})`
           : message,
       )
       setStatus("error")

@@ -122,6 +122,26 @@ para una ruta con pivote sin recargar constantemente.
   demanda durante la descarga inicial.
 - «Borrar modelos descargados» en Ajustes vacía la caché por completo.
 
+**Reanudación byte a byte.** transformers.js solo escribe un archivo en Cache
+Storage cuando ha llegado entero, así que un corte al 90 % de un archivo de
+60 MB no dejaba nada y volvía a empezar de cero. `workers/resumableFetch.js`
+envuelve el `fetch` global: los bytes se van guardando en OPFS a medida que
+llegan y un reintento continúa con una petición `Range` desde donde quedó. La
+respuesta que ve transformers.js es indistinguible de una normal — primero
+emite lo que ya está en disco y luego sigue de la red — así que su propio
+reporte de progreso sigue funcionando.
+
+Cualquier fallo en ese camino cae de vuelta a un `fetch` normal: un bug ahí
+tiene que degradar al comportamiento anterior, nunca romper la descarga.
+
+Verificado en Chromium con la red estrangulada: cortando a los 2 MB de un
+archivo de 8 MB quedan 2 MB en OPFS, el reintento completa los 8 MB y el hash
+coincide byte a byte con la descarga íntegra.
+
+*Nota sobre localStorage:* no sirve para esto. Tiene un límite de ~5-10 MB, es
+síncrono y solo almacena cadenas. Cache Storage y OPFS son las APIs pensadas
+para binarios grandes.
+
 ## Atajos
 
 | Tecla | Acción |

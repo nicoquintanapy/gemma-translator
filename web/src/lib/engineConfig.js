@@ -8,6 +8,11 @@ export const MODEL_CACHE_KEY = "offline-translator-models"
 // transformers.js also keeps a small integrity-hash cache alongside the models.
 export const AUX_CACHE_KEYS = ["experimental_transformers-hash-cache"]
 
+// OPFS directory holding partially-downloaded weights (see
+// workers/resumableFetch.js). Named here so "delete models" can clear it
+// without importing the worker module, whose import installs a fetch wrapper.
+export const PARTIAL_DIR = "partial-downloads"
+
 // The two translation strategies. "opus" trades universal coverage for a much
 // smaller footprint — the right default on phones, where the multilingual
 // embedding table is the single biggest thing standing between the user and a

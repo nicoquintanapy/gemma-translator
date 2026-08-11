@@ -1,6 +1,6 @@
 // Browser-storage helpers for the downloaded weights.
 
-import { AUX_CACHE_KEYS, MODEL_CACHE_KEY } from "./engineConfig.js"
+import { AUX_CACHE_KEYS, MODEL_CACHE_KEY, PARTIAL_DIR } from "./engineConfig.js"
 
 /**
  * Ask the browser to mark this origin's storage as persistent.
@@ -67,10 +67,35 @@ export async function getModelCacheSize() {
 }
 
 export async function clearModelCache() {
-  if (!("caches" in self)) return
-  await Promise.all(
-    [MODEL_CACHE_KEY, ...AUX_CACHE_KEYS].map((key) => caches.delete(key)),
-  )
+  if ("caches" in self) {
+    await Promise.all(
+      [MODEL_CACHE_KEY, ...AUX_CACHE_KEYS].map((key) => caches.delete(key)),
+    )
+  }
+  // Half-finished downloads live outside Cache Storage, in OPFS; leaving them
+  // behind would keep occupying space the user just asked to reclaim.
+  try {
+    const root = await navigator.storage?.getDirectory?.()
+    await root?.removeEntry(PARTIAL_DIR, { recursive: true })
+  } catch {
+    /* nothing stored, or OPFS unavailable */
+  }
+}
+
+/** Bytes held as incomplete downloads, shown alongside the cache size. */
+export async function getPartialDownloadBytes() {
+  try {
+    const root = await navigator.storage?.getDirectory?.()
+    if (!root) return 0
+    const dir = await root.getDirectoryHandle(PARTIAL_DIR, { create: false })
+    let total = 0
+    for await (const [, handle] of dir.entries()) {
+      if (handle.kind === "file") total += (await handle.getFile()).size
+    }
+    return total
+  } catch {
+    return 0
+  }
 }
 
 export function formatBytes(bytes) {

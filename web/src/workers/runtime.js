@@ -4,6 +4,12 @@
 
 import { env } from "@huggingface/transformers"
 import { MODEL_CACHE_KEY } from "../lib/engineConfig.js"
+import { installResumableFetch } from "./resumableFetch.js"
+
+// Must run before any model file is requested: transformers.js only commits a
+// file to Cache Storage once it is complete, so without this a transfer cut
+// short loses everything it had already fetched.
+export const resumableDownloads = installResumableFetch()
 
 // No filesystem in a browser; every model comes from the Hub and is then
 // served out of Cache Storage.
