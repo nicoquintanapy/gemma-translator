@@ -1,0 +1,31 @@
+name: Probe speech-to-text viability
+
+# Manual only. Answers one question before any voice feature is built: can
+# onnxruntime-web build a Whisper session in a real browser, and with which
+# model repo? The development sandbox cannot reach the model host, so this is
+# where that gets executed rather than guessed at.
+#
+# Delete this workflow once the answer is settled.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        working-directory: tools/stt-probe
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run probe
+        working-directory: tools/stt-probe
+        run: node probe.mjs
