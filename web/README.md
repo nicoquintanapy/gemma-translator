@@ -118,6 +118,24 @@ silencio:
   operativo, no de un modelo descargado. Ajustes indica para qué idiomas falta
   voz en el dispositivo actual.
 
+## Móviles
+
+El perfil por defecto en móvil es más conservador: modelo de voz `tiny` y
+**reconocimiento de voz desactivado**, lo que deja la primera descarga en
+~350 MB en vez de ~500 MB. Ambas cosas se activan con un toggle.
+
+La razón es concreta: en iPhone y iPad todos los navegadores son WebKit por
+debajo, y el límite de memoria por pestaña es bajo. Cargar los dos modelos a la
+vez lo roza, y el sistema mata la pestaña — lo que el usuario percibe como
+«se cortó la conexión», no como un fallo de memoria. Tres mitigaciones:
+
+- Los modelos se cargan **secuencialmente**, no en paralelo, para no duplicar el
+  pico de memoria durante la inicialización.
+- Se toma un **wake lock** durante la descarga, para que la pantalla no se
+  apague y el sistema no suspenda la pestaña a medias.
+- Reintentar **continúa desde donde quedó**: los archivos ya completos están en
+  Cache Storage y no se vuelven a bajar.
+
 ## Rendimiento
 
 Por defecto la inferencia corre en **CPU (WASM)**: los pesos publicados son int8

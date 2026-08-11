@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { createWorkerClient } from "../lib/workerClient.js"
 import { requestPersistentStorage } from "../lib/storage.js"
+import { acquireWakeLock } from "../lib/device.js"
 
 // Owns the two inference workers and the download lifecycle.
 //
-// Both models are fetched in parallel and their per-file progress is merged
-// into one number, because from the user's point of view there is a single
-// action — "download the translator" — not two independent model fetches.
+// The models are fetched one after another but their per-file progress is
+// merged into a single number, because from the user's point of view there is
+// one action — "download the translator" — not two independent model fetches.
 
 function createWorkers() {
   return {
@@ -23,7 +24,7 @@ function createWorkers() {
   }
 }
 
-export function useEngine({ device, sttSize }) {
+export function useEngine({ device, sttSize, enableVoice }) {
   const [status, setStatus] = useState("idle") // idle | loading | ready | error
   const [error, setError] = useState(null)
   const [progress, setProgress] = useState({ loaded: 0, total: 0, files: 0 })
@@ -74,14 +75,27 @@ export function useEngine({ device, sttSize }) {
     // fetching hundreds of megabytes is worth having in place beforehand.
     await requestPersistentStorage()
 
+    // Keep the screen awake for the duration. A phone that locks mid-download
+    // gets its tab suspended, and the interrupted fetch is indistinguishable
+    // from a dropped connection.
+    const releaseWakeLock = await acquireWakeLock()
+
     if (!workersRef.current) workersRef.current = createWorkers()
     const { translate, stt } = workersRef.current
 
     try {
-      const [translateInfo, sttInfo] = await Promise.all([
-        translate.call("load", { device }, (m) => handleProgress("Traductor", m)),
-        stt.call("load", { device, size: sttSize }, (m) => handleProgress("Voz", m)),
-      ])
+      // Sequential, not parallel: each pipeline allocates its own arena as it
+      // initialises, and doing both at once doubles the peak memory at exactly
+      // the moment the tab is most likely to be killed for using too much.
+      const translateInfo = await translate.call("load", { device }, (m) =>
+        handleProgress("Traductor", m),
+      )
+      const sttInfo = enableVoice
+        ? await stt.call("load", { device, size: sttSize }, (m) =>
+            handleProgress("Voz", m),
+          )
+        : null
+
       setRuntime({ translate: translateInfo, stt: sttInfo })
       setStatus("ready")
       return true
@@ -91,13 +105,15 @@ export function useEngine({ device, sttSize }) {
       // common cause is being offline during the one step that needs network.
       setError(
         /failed to fetch|networkerror|err_/i.test(message)
-          ? `No se pudo descargar el modelo. La descarga inicial necesita conexión a internet. (${message})`
+          ? `Se interrumpió la descarga. Reintentar continúa desde donde quedó: los archivos ya completos no se vuelven a bajar. (${message})`
           : message,
       )
       setStatus("error")
       return false
+    } finally {
+      releaseWakeLock()
     }
-  }, [device, sttSize, handleProgress])
+  }, [device, sttSize, enableVoice, handleProgress])
 
   const translate = useCallback(async ({ text, srcLang, tgtLang, onPartial }) => {
     const workers = workersRef.current
@@ -114,11 +130,12 @@ export function useEngine({ device, sttSize }) {
   const transcribe = useCallback(async ({ audio, language }) => {
     const workers = workersRef.current
     if (!workers) throw new Error("El motor no está cargado")
+    if (!enableVoice) throw new Error("El reconocimiento de voz no está activado")
     // Transfer rather than copy the PCM buffer; the caller does not reuse it.
     return workers.stt.call("transcribe", { audio, language }, undefined, [
       audio.buffer,
     ])
-  }, [])
+  }, [enableVoice])
 
   const reset = useCallback(async () => {
     workersRef.current?.translate.terminate()

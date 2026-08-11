@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { formatBytes, getStorageEstimate } from "../lib/storage.js"
 import { STT_MODELS, TRANSLATION_MODEL } from "../lib/engineConfig.js"
+import { isIos, isMobileDevice } from "../lib/device.js"
 
 // First-run screen. The download is explicit and its cost is stated up front —
 // several hundred megabytes should never start behind the user's back.
@@ -11,12 +12,14 @@ export default function ModelGate({
   error,
   notices,
   sttSize,
+  enableVoice,
+  onToggleVoice,
   cachedBytes,
   onStart,
   onRetry,
 }) {
   const stt = STT_MODELS[sttSize] ?? STT_MODELS.base
-  const estimateMb = TRANSLATION_MODEL.approxMb + stt.approxMb
+  const estimateMb = TRANSLATION_MODEL.approxMb + (enableVoice ? stt.approxMb : 0)
 
   // Warn about a doomed download before the user waits on it, rather than
   // failing with a quota error several hundred megabytes in.
@@ -50,10 +53,24 @@ export default function ModelGate({
             <span className="gate-model-role">Traducción · 20 idiomas</span>
             <span className="gate-model-size">~{TRANSLATION_MODEL.approxMb} MB</span>
           </li>
-          <li>
-            <span className="gate-model-name">{stt.label}</span>
-            <span className="gate-model-role">Reconocimiento de voz</span>
-            <span className="gate-model-size">~{stt.approxMb} MB</span>
+          <li className={enableVoice ? "" : "gate-model-off"}>
+            <span className="gate-model-name">
+              <label className="row-toggle">
+                <input
+                  type="checkbox"
+                  checked={enableVoice}
+                  disabled={status === "loading"}
+                  onChange={(event) => onToggleVoice(event.target.checked)}
+                />
+                <span>{stt.label}</span>
+              </label>
+            </span>
+            <span className="gate-model-role">
+              Reconocimiento de voz{enableVoice ? "" : " — desactivado"}
+            </span>
+            <span className="gate-model-size">
+              {enableVoice ? `~${stt.approxMb} MB` : "0 MB"}
+            </span>
           </li>
           <li className="gate-model-free">
             <span className="gate-model-name">Voces del sistema</span>
@@ -73,8 +90,9 @@ export default function ModelGate({
                 : "Contactando con el repositorio de modelos…"}
             </p>
             <p className="gate-hint">
-              Puedes dejar la pestaña abierta en segundo plano. Si la cierras, la
-              descarga se reanuda desde donde estaba.
+              {isMobileDevice()
+                ? "Mantén esta pestaña en primer plano y la pantalla encendida. Si sales de la app, el sistema puede descartar la pestaña y cortar la descarga; al reintentar continúa desde donde quedó."
+                : "Puedes dejar la pestaña abierta en segundo plano. Si se interrumpe, al reintentar continúa desde donde quedó."}
             </p>
           </div>
         )}
@@ -99,6 +117,13 @@ export default function ModelGate({
             <p className="gate-hint">
               Necesitas conexión solo para esta descarga inicial.
             </p>
+            {isMobileDevice() && (
+              <p className="gate-hint note-warn">
+                {isIos()
+                  ? "En iPhone y iPad todos los navegadores usan WebKit, que limita bastante la memoria de una pestaña. Con la voz activada esto ronda el límite y el sistema puede cerrar la pestaña a mitad de la descarga — que es justo lo que se ve como «se cortó la conexión». Empieza solo con traducción de texto y añade la voz después."
+                  : "En móvil el sistema puede cerrar la pestaña si necesita memoria. Si la descarga se corta, desactiva la voz y vuelve a intentarlo."}
+              </p>
+            )}
             {tooLittleSpace && (
               <p className="gate-hint note-warn">
                 Este navegador informa de poco espacio disponible para

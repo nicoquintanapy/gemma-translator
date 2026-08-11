@@ -544,3 +544,13 @@ body {
     font-size: 1.05rem;
   }
 }
+
+/* A model row the user has switched off — dimmed, but still legible so the
+   size it would cost stays visible. */
+.gate-model-off {
+  opacity: 0.55;
+}
+
+.gate-models .row-toggle {
+  font-weight: 600;
+}

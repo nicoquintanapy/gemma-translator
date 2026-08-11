@@ -9,13 +9,18 @@ import { useEngine } from "./hooks/useEngine.js"
 import { canTranscribe, getLanguage, isRtl } from "./lib/languages.js"
 import { DEFAULT_DEVICE, DEFAULT_STT_SIZE } from "./lib/engineConfig.js"
 import { getModelCacheSize, requestPersistentStorage } from "./lib/storage.js"
+import { isMobileDevice } from "./lib/device.js"
 import { speak, stopSpeaking } from "./lib/tts.js"
 
 const SETTINGS_KEY = "offline-translator-settings"
 
+// Phones get the conservative profile: the small speech model, and speech
+// recognition off entirely, so the first run is ~350 MB rather than ~500 MB.
+// Both are one toggle away and persist once changed.
 const DEFAULT_SETTINGS = {
   device: DEFAULT_DEVICE,
-  sttSize: DEFAULT_STT_SIZE,
+  sttSize: isMobileDevice() ? "tiny" : DEFAULT_STT_SIZE,
+  enableVoice: !isMobileDevice(),
   autoSpeak: true,
   srcLang: "es",
   tgtLang: "en",
@@ -42,7 +47,11 @@ export default function App() {
   const [persisted, setPersisted] = useState(false)
   const [cachedBytes, setCachedBytes] = useState(0)
 
-  const engine = useEngine({ device: settings.device, sttSize: settings.sttSize })
+  const engine = useEngine({
+    device: settings.device,
+    sttSize: settings.sttSize,
+    enableVoice: settings.enableVoice,
+  })
   const recorder = useAudioRecorder()
 
   // A translation in flight blocks the next one; `pendingRef` remembers that
@@ -225,6 +234,8 @@ export default function App() {
         error={engine.error}
         notices={engine.notices}
         sttSize={settings.sttSize}
+        enableVoice={settings.enableVoice}
+        onToggleVoice={(value) => updateSettings({ enableVoice: value })}
         cachedBytes={cachedBytes}
         onStart={startEngine}
         onRetry={startEngine}
@@ -234,7 +245,9 @@ export default function App() {
 
   const sourceLang = getLanguage(settings.srcLang)
   const targetLang = getLanguage(settings.tgtLang)
-  const micDisabled = isTranscribing || isTranslating || !canTranscribe(settings.srcLang)
+  const voiceReady = settings.enableVoice && Boolean(engine.runtime.stt)
+  const micDisabled =
+    isTranscribing || isTranslating || !voiceReady || !canTranscribe(settings.srcLang)
 
   return (
     <div className="app">
@@ -263,9 +276,11 @@ export default function App() {
               level={recorder.level}
               disabled={micDisabled}
               title={
-                canTranscribe(settings.srcLang)
-                  ? "Grabar (barra espaciadora)"
-                  : `El reconocimiento de voz no cubre ${sourceLang.label}; escribe el texto`
+                !voiceReady
+                  ? "El reconocimiento de voz no está descargado. Actívalo en Ajustes y recarga el motor."
+                  : canTranscribe(settings.srcLang)
+                    ? "Grabar (barra espaciadora)"
+                    : `El reconocimiento de voz no cubre ${sourceLang.label}; escribe el texto`
               }
               onToggle={handleMic}
             />

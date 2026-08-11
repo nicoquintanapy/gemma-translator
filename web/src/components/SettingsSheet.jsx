@@ -33,10 +33,13 @@ export default function SettingsSheet({
     await onReload()
   }
 
-  // Changing device or model size requires rebuilding the pipelines, so these
-  // controls are pending until the user reloads the engine.
+  // Changing the device, the speech model, or whether speech is loaded at all
+  // requires rebuilding the pipelines, so those controls stay pending until the
+  // user reloads the engine.
   const restartNeeded =
-    runtime.translate && settings.device !== runtime.translate.device
+    Boolean(runtime.translate) &&
+    (settings.device !== runtime.translate.device ||
+      settings.enableVoice !== Boolean(runtime.stt))
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -102,10 +105,25 @@ export default function SettingsSheet({
             vuelve a CPU automáticamente.
           </p>
 
+          <label className="row-toggle">
+            <input
+              type="checkbox"
+              checked={settings.enableVoice}
+              onChange={(event) => onChange({ enableVoice: event.target.checked })}
+            />
+            <span>Reconocimiento de voz (entrada por micrófono)</span>
+          </label>
+          <p className="note">
+            Desactivarlo ahorra la descarga del modelo de voz y reduce
+            bastante la memoria que usa la pestaña. En móviles es la diferencia
+            entre que funcione y que el sistema cierre la pestaña.
+          </p>
+
           <label className="field">
             <span>Modelo de voz</span>
             <select
               value={settings.sttSize}
+              disabled={!settings.enableVoice}
               onChange={(event) => onChange({ sttSize: event.target.value })}
             >
               {Object.entries(STT_MODELS).map(([value, model]) => (
@@ -162,7 +180,7 @@ export default function SettingsSheet({
             </div>
             <div>
               <dt>Voz</dt>
-              <dd>{runtime.stt?.device ?? "—"}</dd>
+              <dd>{runtime.stt?.device ?? "no cargada"}</dd>
             </div>
             <div>
               <dt>Hilos WASM</dt>
