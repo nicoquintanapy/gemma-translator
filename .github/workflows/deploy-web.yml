@@ -26,16 +26,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      # `enablement: true` turns Pages on for the repository if it is not
-      # already, so the first run does not need a manual settings change.
+      # Requires a one-time repository setting:
+      #   Settings → Pages → Build and deployment → Source: "GitHub Actions".
+      # The action can also create the Pages site itself via `enablement: true`,
+      # but the default GITHUB_TOKEN is not allowed to do that ("Resource not
+      # accessible by integration"), so the setting has to be flipped by hand.
       - uses: actions/configure-pages@v5
         id: pages
-        with:
-          enablement: true
 
       - name: Install dependencies
         working-directory: web

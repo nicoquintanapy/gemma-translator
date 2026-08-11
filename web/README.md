@@ -70,8 +70,13 @@ regeneran desde `node_modules`.
 ### GitHub Pages
 
 `.github/workflows/deploy-web.yml` publica `web/dist` en GitHub Pages en cada
-push a `main` que toque `web/`. El workflow habilita Pages por sí solo la
-primera vez, y compila con `VITE_BASE` apuntando al subpath del repositorio.
+push a `main` que toque `web/`, compilando con `VITE_BASE` apuntando al subpath
+del repositorio.
+
+Requiere un ajuste manual una sola vez: **Settings → Pages → Build and
+deployment → Source: «GitHub Actions»**. El workflow no puede activarlo por sí
+mismo porque el `GITHUB_TOKEN` por defecto no tiene permiso para crear el sitio
+de Pages.
 
 Salvedad conocida: **GitHub Pages no permite enviar cabeceras propias**, así que
 allí no hay aislamiento cross-origin y la inferencia corre en un solo hilo. Es
