@@ -3,7 +3,6 @@
 // use to talk to the main thread.
 
 import { env } from "@huggingface/transformers"
-import { MODEL_CACHE_KEY } from "../lib/engineConfig.js"
 import { installResumableFetch } from "./resumableFetch.js"
 
 // Must run before any model file is requested: transformers.js only commits a
@@ -15,7 +14,6 @@ export const resumableDownloads = installResumableFetch()
 // served out of Cache Storage.
 env.allowLocalModels = false
 env.useBrowserCache = true
-env.cacheKey = MODEL_CACHE_KEY
 
 // Point onnxruntime-web at the self-hosted binaries copied by
 // scripts/copy-ort.mjs. Without this it fetches them from a CDN on every cold
@@ -43,16 +41,17 @@ export async function hasWebGPU() {
 
 // Graph-optimization levels to try, in order.
 //
-// onnxruntime-web 1.26 runs a QDQ transformer (TransposeDQWeightsForMatMulNBits)
-// at the "extended" level that chokes on the older quantized ONNX exports the
-// Xenova repos publish — it looks for a per-weight scale initializer those
-// graphs never contained, and session creation dies with
-// "Missing required scale: model.shared.weight_..._scale".
+// This exists because onnxruntime-web 1.26 (bundled by transformers.js v4) runs
+// a QDQ transformer, TransposeDQWeightsForMatMulNBits, at the "extended" level
+// that rejects the older quantized ONNX the Xenova repos publish: it looks for
+// a per-weight scale initializer those graphs never contained, and session
+// creation dies with "Missing required scale: model.shared.weight_..._scale".
+// Stepping the level down was not enough, so the library is pinned to v3, whose
+// onnxruntime 1.22 predates that transformer entirely.
 //
-// The weights themselves are fine, and by this point already cached, so
-// stepping the optimizer down and rebuilding costs no bandwidth. "disabled"
-// runs the graph as exported: slower, but it is the level that cannot trip
-// over an optimization at all.
+// The ladder stays as defence in depth: rebuilding costs no bandwidth once the
+// weights are cached, and "disabled" runs the graph exactly as exported, which
+// is the one level that cannot trip over an optimization pass.
 const SESSION_PROFILES = [
   { label: "optimización completa", options: undefined },
   { label: "optimización básica", options: { graphOptimizationLevel: "basic" } },

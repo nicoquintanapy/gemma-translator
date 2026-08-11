@@ -194,25 +194,34 @@ inicialización se vuelve a CPU automáticamente y se avisa en pantalla.
 
 ## Compatibilidad del runtime con los pesos cuantizados
 
-onnxruntime-web 1.26 (el que trae transformers.js v4) ejecuta un transformador
+**`@huggingface/transformers` está fijado a la 3.8.1 a propósito.** No es
+conservadurismo: la v4 trae onnxruntime-web 1.26, que ejecuta un transformador
 QDQ — `TransposeDQWeightsForMatMulNBits` — en el nivel de optimización
 *extended*. Los ONNX cuantizados que publican los repos `Xenova/*` se generaron
 antes de eso y no contienen los inicializadores de escala por peso que ese paso
-espera, así que crear la sesión puede fallar con:
+espera, así que crear la sesión falla con:
 
 ```
 Missing required scale: model.shared.weight_merged_0_scale
 ```
 
-No es un fallo de descarga: los pesos están bien y ya en caché. `runtime.js`
-baja el nivel de optimización y reconstruye — `completa` → `básica` →
-`sin optimizar` — lo que no cuesta ancho de banda. `sin optimizar` ejecuta el
-grafo tal como se exportó: más lento, pero es el único nivel que no puede
-tropezar con una optimización.
+No es un fallo de descarga: los pesos están bien y ya en caché. Bajar el nivel
+de optimización no bastó. La 3.8.1 trae onnxruntime-web **1.22**, anterior a ese
+transformador — verificado: el símbolo no aparece en sus binarios wasm.
 
-Si aun así falla, la tarjeta de error ofrece reintentar con los pesos sin
-cuantizar (`fp32`). Es opt-in y nunca automático, porque la descarga es varias
-veces mayor.
+Dos consecuencias de la v3 que el código contempla:
+
+- No existe `env.cacheKey`; el nombre de la caché está fijado a
+  `transformers-cache`, así que «borrar modelos» apunta ahí.
+- Solo usa la variante `jsep` del runtime, que sirve tanto CPU como WebGPU.
+  `scripts/copy-ort.mjs` descubre qué archivos trae la librería en vez de
+  codificarlos, y **limpia el destino antes de copiar**: `wasmPaths` apunta al
+  directorio entero, y dejar un binario de otra versión ahí arriesga que el
+  cargador tome un build descoordinado.
+
+El escalonado de optimización (`completa` → `básica` → `sin optimizar`) se
+mantiene como defensa en profundidad, junto con el reintento opt-in con pesos
+sin cuantizar (`fp32`) que ofrece la tarjeta de error.
 
 ## Estructura
 

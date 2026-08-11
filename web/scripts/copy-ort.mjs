@@ -11,53 +11,68 @@
  * Run automatically via the `predev` / `prebuild` npm scripts.
  */
 
-import { copyFileSync, mkdirSync, existsSync, statSync } from "node:fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..")
-const src = join(root, "node_modules", "onnxruntime-web", "dist")
+// transformers.js ships the exact onnxruntime build it expects in its own
+// dist, and its default wasmPaths point at that package on a CDN. Copying from
+// there — rather than from onnxruntime-web — guarantees the binaries match the
+// library version, and only the files it actually asks for get copied.
+const primary = join(root, "node_modules", "@huggingface", "transformers", "dist")
+const secondary = join(root, "node_modules", "onnxruntime-web", "dist")
 const dest = join(root, "public", "ort")
 
-// The filenames transformers.js resolves against `wasmPaths`. The plain build
-// serves the CPU/WASM backend; the asyncify build is what the WebGPU path
-// falls back onto for async kernels.
-const FILES = [
-  "ort-wasm-simd-threaded.mjs",
-  "ort-wasm-simd-threaded.wasm",
-  "ort-wasm-simd-threaded.asyncify.mjs",
-  "ort-wasm-simd-threaded.asyncify.wasm",
-  "ort-wasm-simd-threaded.jsep.mjs",
-  "ort-wasm-simd-threaded.jsep.wasm",
-]
+// Every onnxruntime artefact either package ships. The set differs between
+// library versions — v3 uses only the jsep build, which serves both the CPU and
+// WebGPU paths — so the list is discovered rather than hardcoded.
+const ORT_FILE = /^ort-wasm.*\.(wasm|mjs)$/
 
-if (!existsSync(src)) {
+if (!existsSync(primary) && !existsSync(secondary)) {
   console.error(
-    "[copy-ort] onnxruntime-web not found. Run `npm install` first.",
+    "[copy-ort] no onnxruntime build found. Run `npm install` first.",
   )
   process.exit(1)
 }
 
+// Later sources do not overwrite earlier ones: the library's own copy wins.
+const sources = [primary, secondary].filter(existsSync)
+const FILES = []
+for (const dir of sources) {
+  for (const name of readdirSync(dir)) {
+    if (ORT_FILE.test(name) && !FILES.some(([n]) => n === name)) {
+      FILES.push([name, dir])
+    }
+  }
+}
+
+// Wipe first. Different library versions ship different onnxruntime variants,
+// and `wasmPaths` points at this directory as a whole — leaving a binary from a
+// previous version behind risks the loader picking up a mismatched build.
+rmSync(dest, { recursive: true, force: true })
 mkdirSync(dest, { recursive: true })
 
 let copied = 0
 let bytes = 0
-for (const file of FILES) {
-  const from = join(src, file)
-  if (!existsSync(from)) {
-    // Not every ORT release ships every variant; the ones that matter for the
-    // default CPU path are checked below.
-    console.warn(`[copy-ort] skipping missing ${file}`)
-    continue
-  }
-  copyFileSync(from, join(dest, file))
+for (const [name, dir] of FILES) {
+  const from = join(dir, name)
+  copyFileSync(from, join(dest, name))
   copied++
   bytes += statSync(from).size
 }
 
-if (!existsSync(join(dest, "ort-wasm-simd-threaded.wasm"))) {
-  console.error("[copy-ort] the CPU runtime is missing — the app cannot run.")
+// Whatever the variant, at least one .wasm must have landed or nothing can run.
+if (!FILES.some(([name]) => name.endsWith(".wasm"))) {
+  console.error("[copy-ort] no wasm runtime was copied — the app cannot run.")
   process.exit(1)
 }
 

@@ -1,9 +1,10 @@
 // Single source of truth for what gets downloaded and where it is stored.
 // Imported by both the UI (to render the download gate) and the workers.
 
-// All model files land in one Cache Storage bucket so "delete models" is a
-// single, unambiguous operation instead of guessing at library internals.
-export const MODEL_CACHE_KEY = "offline-translator-models"
+// Cache Storage bucket holding the model files. transformers.js v3 hardcodes
+// this name (there is no env.cacheKey to point elsewhere), so "delete models"
+// has to target the library's bucket rather than one of our choosing.
+export const MODEL_CACHE_KEY = "transformers-cache"
 
 // transformers.js also keeps a small integrity-hash cache alongside the models.
 export const AUX_CACHE_KEYS = ["experimental_transformers-hash-cache"]
