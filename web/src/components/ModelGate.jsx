@@ -27,6 +27,7 @@ export default function ModelGate({
   cachedBytes,
   onStart,
   onRetry,
+  onRetryUncompressed,
 }) {
   const stt = STT_MODELS[sttSize] ?? STT_MODELS.base
   const light = translationEngine === "opus"
@@ -43,6 +44,12 @@ export default function ModelGate({
       setTooLittleSpace(free < estimateMb * 1024 * 1024 * 1.2)
     })
   }, [estimateMb])
+
+  // Distinguishes "the runtime refused this graph" from "the bytes never
+  // arrived" — they need completely different suggestions.
+  const isSessionError = /create a session|ERROR_CODE|DequantizeLinear|MatMulNBits/i.test(
+    error ?? "",
+  )
 
   const pct =
     progress.total > 0
@@ -119,9 +126,28 @@ export default function ModelGate({
           <div className="gate-error" role="alert">
             <strong>No se pudo cargar el motor.</strong>
             <p>{error}</p>
-            <button className="btn btn-primary" onClick={onRetry}>
-              Reintentar
-            </button>
+            <div className="gate-error-actions">
+              <button className="btn btn-primary" onClick={onRetry}>
+                Reintentar
+              </button>
+              {/* Session-creation failures come from the runtime rejecting the
+                  quantized graph, not from a bad download, so retrying
+                  identically will fail identically. The unquantized build is
+                  the escape hatch — offered, never taken automatically, since
+                  it is several times the download. */}
+              {isSessionError && light && (
+                <button className="btn" onClick={onRetryUncompressed}>
+                  Probar sin cuantizar (descarga bastante mayor)
+                </button>
+              )}
+            </div>
+            {isSessionError && (
+              <p className="gate-hint">
+                El error viene de onnxruntime al crear la sesión, no de la
+                descarga: los pesos ya están en caché. La app ya reintentó
+                bajando el nivel de optimización del grafo.
+              </p>
+            )}
           </div>
         )}
 

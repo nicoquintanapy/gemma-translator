@@ -52,11 +52,13 @@ export function useEngine({ device, sttSize, enableVoice, translationEngine }) {
   }, [])
 
   const handleProgress = useCallback((engine, message) => {
-    if (message?.kind === "fallback") {
-      setNotices((prev) => [
-        ...prev,
-        `${engine}: ${message.from} no disponible (${message.reason ?? "sin detalle"}), usando CPU.`,
-      ])
+    if (message?.kind === "notice") {
+      // Workers phrase these themselves; the hook must not editorialise, since
+      // an inaccurate one ("using CPU" when CPU is what just failed) is worse
+      // than none at all.
+      setNotices((prev) =>
+        prev.includes(message.text) ? prev : [...prev, message.text],
+      )
       return
     }
     if (message?.kind !== "download") return
@@ -73,7 +75,7 @@ export function useEngine({ device, sttSize, enableVoice, translationEngine }) {
     setProgress({ loaded, total, files: filesRef.current.size })
   }, [])
 
-  const load = useCallback(async ({ srcLang, tgtLang } = {}) => {
+  const load = useCallback(async ({ srcLang, tgtLang, dtypeOverride } = {}) => {
     setStatus("loading")
     setError(null)
     setNotices([])
@@ -117,7 +119,7 @@ export function useEngine({ device, sttSize, enableVoice, translationEngine }) {
       // the moment the tab is most likely to be killed for using too much.
       const translateInfo = await translate.call(
         "load",
-        { device, engine: translationEngine, route: resolved },
+        { device, engine: translationEngine, route: resolved, dtypeOverride },
         (m) => handleProgress("Traductor", m),
       )
       const sttInfo = enableVoice

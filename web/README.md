@@ -172,6 +172,28 @@ experimental en Ajustes — el soporte de kernels int8 en modelos
 codificador-decodificador varía según el navegador, así que si falla la
 inicialización se vuelve a CPU automáticamente y se avisa en pantalla.
 
+## Compatibilidad del runtime con los pesos cuantizados
+
+onnxruntime-web 1.26 (el que trae transformers.js v4) ejecuta un transformador
+QDQ — `TransposeDQWeightsForMatMulNBits` — en el nivel de optimización
+*extended*. Los ONNX cuantizados que publican los repos `Xenova/*` se generaron
+antes de eso y no contienen los inicializadores de escala por peso que ese paso
+espera, así que crear la sesión puede fallar con:
+
+```
+Missing required scale: model.shared.weight_merged_0_scale
+```
+
+No es un fallo de descarga: los pesos están bien y ya en caché. `runtime.js`
+baja el nivel de optimización y reconstruye — `completa` → `básica` →
+`sin optimizar` — lo que no cuesta ancho de banda. `sin optimizar` ejecuta el
+grafo tal como se exportó: más lento, pero es el único nivel que no puede
+tropezar con una optimización.
+
+Si aun así falla, la tarjeta de error ofrece reintentar con los pesos sin
+cuantizar (`fp32`). Es opt-in y nunca automático, porque la descarga es varias
+veces mayor.
+
 ## Estructura
 
 ```

@@ -35,28 +35,71 @@ export async function hasWebGPU() {
   }
 }
 
+// Graph-optimization levels to try, in order.
+//
+// onnxruntime-web 1.26 runs a QDQ transformer (TransposeDQWeightsForMatMulNBits)
+// at the "extended" level that chokes on the older quantized ONNX exports the
+// Xenova repos publish — it looks for a per-weight scale initializer those
+// graphs never contained, and session creation dies with
+// "Missing required scale: model.shared.weight_..._scale".
+//
+// The weights themselves are fine, and by this point already cached, so
+// stepping the optimizer down and rebuilding costs no bandwidth. "disabled"
+// runs the graph as exported: slower, but it is the level that cannot trip
+// over an optimization at all.
+const SESSION_PROFILES = [
+  { label: "optimización completa", options: undefined },
+  { label: "optimización básica", options: { graphOptimizationLevel: "basic" } },
+  { label: "sin optimizar", options: { graphOptimizationLevel: "disabled" } },
+]
+
+/** Is this a session-creation failure worth retrying at a lower opt level? */
+function isSessionCreationError(error) {
+  return /create a session|ERROR_CODE|qdq|MatMulNBits|optimization|DequantizeLinear/i.test(
+    error?.message ?? "",
+  )
+}
+
 /**
- * Builds a pipeline on `preferred`, falling back to WASM if that device can't
- * run the model. Returns the pipeline plus the device actually used, so the UI
- * can tell the truth about what is running.
+ * Builds a pipeline, walking down two ladders: the device (WebGPU → CPU) and,
+ * within each device, the graph-optimization level.
+ *
+ * Returns the pipeline plus the device and profile actually used, so the UI can
+ * report what is really running rather than what was requested.
  */
-export async function buildWithFallback(create, preferred, onFallback) {
-  const ladder = preferred === "webgpu" ? ["webgpu", "wasm"] : ["wasm"]
+export async function buildWithFallback(create, preferred, onNotice) {
+  const devices = preferred === "webgpu" ? ["webgpu", "wasm"] : ["wasm"]
   let lastError
-  for (const device of ladder) {
+
+  for (const device of devices) {
     if (device === "webgpu" && !(await hasWebGPU())) {
       lastError = new Error("WebGPU no disponible en este navegador")
-      onFallback?.(device, lastError)
+      onNotice?.(`WebGPU no está disponible; usando CPU.`)
       continue
     }
-    try {
-      const instance = await create(device)
-      return { instance, device }
-    } catch (error) {
-      lastError = error
-      onFallback?.(device, error)
+
+    for (const profile of SESSION_PROFILES) {
+      try {
+        const instance = await create(device, profile.options)
+        return { instance, device, profile: profile.label }
+      } catch (error) {
+        lastError = error
+        if (!isSessionCreationError(error)) {
+          // Anything else (a failed download, a missing file) will not be
+          // fixed by rebuilding the same graph differently.
+          onNotice?.(`Fallo al cargar en ${device}: ${error?.message ?? error}`)
+          break
+        }
+        const next = SESSION_PROFILES[SESSION_PROFILES.indexOf(profile) + 1]
+        onNotice?.(
+          next
+            ? `La sesión falló con ${profile.label}; reintentando con ${next.label}.`
+            : `La sesión falló con ${profile.label} y no quedan niveles por probar.`,
+        )
+      }
     }
   }
+
   throw lastError ?? new Error("No se pudo inicializar ningún backend")
 }
 

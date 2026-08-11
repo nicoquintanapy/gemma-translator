@@ -18,26 +18,28 @@ import { buildWithFallback, makeDownloadReporter, serve } from "./runtime.js"
 // --- NLLB -------------------------------------------------------------------
 
 let nllb = null
+let nllbProfile = null
 let nllbLoading = null
 
-async function loadNllb(device, report) {
+async function loadNllb(device, report, dtypeOverride) {
   if (nllb) return nllb
   if (nllbLoading) return nllbLoading
 
   nllbLoading = (async () => {
     const onProgress = makeDownloadReporter(report)
-    const { instance } = await buildWithFallback(
-      (target) =>
+    const { instance, profile } = await buildWithFallback(
+      (target, sessionOptions) =>
         pipeline("translation", TRANSLATION_MODEL.id, {
           device: target,
-          dtype: TRANSLATION_MODEL.dtype,
+          dtype: dtypeOverride ?? TRANSLATION_MODEL.dtype,
+          session_options: sessionOptions,
           progress_callback: onProgress,
         }),
       device,
-      (failed, error) =>
-        report({ kind: "fallback", from: failed, reason: error?.message }),
+      (message) => report({ kind: "notice", text: `Traductor: ${message}` }),
     )
     nllb = instance
+    nllbProfile = profile
     return nllb
   })()
 
@@ -67,7 +69,7 @@ async function evictOldestPack() {
   await victim?.dispose?.()
 }
 
-async function loadPack(repo, device, report) {
+async function loadPack(repo, device, report, dtypeOverride) {
   const resident = packs.get(repo)
   if (resident) {
     // Refresh recency.
@@ -80,15 +82,15 @@ async function loadPack(repo, device, report) {
   const loading = (async () => {
     const onProgress = makeDownloadReporter(report)
     const { instance } = await buildWithFallback(
-      (target) =>
+      (target, sessionOptions) =>
         pipeline("translation", repo, {
           device: target,
-          dtype: "q8",
+          dtype: dtypeOverride ?? "q8",
+          session_options: sessionOptions,
           progress_callback: onProgress,
         }),
       device,
-      (failed, error) =>
-        report({ kind: "fallback", from: failed, reason: error?.message }),
+      (message) => report({ kind: "notice", text: `${repo}: ${message}` }),
     )
     while (packs.size >= MAX_RESIDENT_PACKS) await evictOldestPack()
     packs.set(repo, instance)
@@ -107,27 +109,29 @@ async function loadPack(repo, device, report) {
 
 let activeEngine = "nllb"
 let activeDevice = null
+let activeDtype = null
 
-async function load({ device, engine, route }, report) {
+async function load({ device, engine, route, dtypeOverride }, report) {
   activeEngine = engine ?? "nllb"
   activeDevice = device
+  activeDtype = dtypeOverride ?? null
 
   if (activeEngine === "opus") {
     for (const step of route?.steps ?? []) {
-      await loadPack(step.repo, device, report)
+      await loadPack(step.repo, device, report, activeDtype)
     }
     return { device, engine: activeEngine, packs: [...packs.keys()] }
   }
 
-  await loadNllb(device, report)
-  return { device, engine: activeEngine }
+  await loadNllb(device, report, activeDtype)
+  return { device, engine: activeEngine, profile: nllbProfile }
 }
 
 /** Loads any packs a route needs that are not already resident. */
 async function loadRoute({ route }, report) {
   if (activeEngine !== "opus") return { packs: [] }
   for (const step of route?.steps ?? []) {
-    await loadPack(step.repo, activeDevice, report)
+    await loadPack(step.repo, activeDevice, report, activeDtype)
   }
   return { packs: [...packs.keys()] }
 }

@@ -584,3 +584,9 @@ body {
 .gate-engine {
   margin-bottom: 0.25rem;
 }
+
+.gate-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

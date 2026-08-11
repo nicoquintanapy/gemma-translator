@@ -26,15 +26,15 @@ async function load({ device, size }, report) {
   loading = (async () => {
     const onProgress = makeDownloadReporter(report)
     const { instance, device: resolved } = await buildWithFallback(
-      (target) =>
+      (target, sessionOptions) =>
         pipeline("automatic-speech-recognition", model.id, {
           device: target,
           dtype: model.dtype,
+          session_options: sessionOptions,
           progress_callback: onProgress,
         }),
       device,
-      (failed, error) =>
-        report({ kind: "fallback", from: failed, reason: error?.message }),
+      (message) => report({ kind: "notice", text: `Voz: ${message}` }),
     )
     transcriber = instance
     activeDevice = resolved

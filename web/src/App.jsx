@@ -264,6 +264,13 @@ export default function App() {
         cachedBytes={cachedBytes}
         onStart={startEngine}
         onRetry={startEngine}
+        onRetryUncompressed={() =>
+          engine.load({
+            srcLang: settings.srcLang,
+            tgtLang: settings.tgtLang,
+            dtypeOverride: "fp32",
+          })
+        }
       />
     )
   }
