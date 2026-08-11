@@ -67,6 +67,17 @@ regeneran desde `node_modules`.
 
    La app muestra en Ajustes → «Motor activo» si el aislamiento está activo.
 
+### GitHub Pages
+
+`.github/workflows/deploy-web.yml` publica `web/dist` en GitHub Pages en cada
+push a `main` que toque `web/`. El workflow habilita Pages por sí solo la
+primera vez, y compila con `VITE_BASE` apuntando al subpath del repositorio.
+
+Salvedad conocida: **GitHub Pages no permite enviar cabeceras propias**, así que
+allí no hay aislamiento cross-origin y la inferencia corre en un solo hilo. Es
+perfectamente usable para probar, pero para uso real conviene un hosting donde
+puedas definir COOP/COEP (Netlify, Vercel, Cloudflare Pages, nginx…).
+
 ## Cómo se guardan los modelos
 
 - Los pesos van a **Cache Storage**, bajo la clave `offline-translator-models`.

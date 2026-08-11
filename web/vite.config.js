@@ -16,7 +16,14 @@ const isolationHeaders = {
   "Cross-Origin-Embedder-Policy": "credentialless",
 }
 
+// GitHub Pages serves project sites from a subpath (/<repo>/), so every asset
+// URL — including the service worker scope and the self-hosted WASM runtime —
+// has to be built relative to it. Defaults to "/" for local dev and for hosts
+// that serve from the root.
+const base = process.env.VITE_BASE || "/"
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -28,14 +35,14 @@ export default defineConfig({
         globPatterns: ["**/*.{js,css,html,svg,woff2}"],
         globIgnores: ["**/ort/**"],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        navigateFallback: "index.html",
+        navigateFallback: `${base}index.html`,
         runtimeCaching: [
           {
             // Self-hosted onnxruntime-web binaries. Two locations matter: the
             // copies under /ort/ that `wasmPaths` points at, and the .wasm
             // Vite emits into /assets/ from transformers.js' own imports.
             urlPattern: ({ url }) =>
-              url.pathname.startsWith("/ort/") ||
+              url.pathname.includes("/ort/") ||
               url.pathname.endsWith(".wasm") ||
               url.pathname.endsWith(".mjs"),
             handler: "CacheFirst",
@@ -55,7 +62,8 @@ export default defineConfig({
         theme_color: "#0b0f14",
         background_color: "#0b0f14",
         display: "standalone",
-        start_url: "/",
+        start_url: ".",
+        scope: ".",
         icons: [
           { src: "icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any maskable" },
         ],

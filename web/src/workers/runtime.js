@@ -16,7 +16,9 @@ env.cacheKey = MODEL_CACHE_KEY
 // start, which would make the app fail the moment the user is actually offline.
 const ortWasm = env.backends?.onnx?.wasm
 if (ortWasm) {
-  ortWasm.wasmPaths = new URL("/ort/", self.location.origin).href
+  // BASE_URL, not a leading slash: on GitHub Pages the app lives under
+  // /<repo>/, so an absolute "/ort/" would 404.
+  ortWasm.wasmPaths = new URL(`${import.meta.env.BASE_URL}ort/`, self.location.href).href
   // Threads need SharedArrayBuffer, which needs cross-origin isolation. When
   // the host doesn't send COOP/COEP we must stay single-threaded or ORT throws.
   ortWasm.numThreads = self.crossOriginIsolated
