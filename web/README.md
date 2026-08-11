@@ -149,9 +149,26 @@ interfaz lo indica en la barra de estado.
 
 ## Lo que no hace
 
-**Entrada por voz.** Bergamot traduce, no transcribe. La versión anterior
-intentaba Whisper sobre onnxruntime-web, que es exactamente el camino que no
-funcionaba. Queda como problema abierto.
+**Entrada por voz.** Bergamot traduce, no transcribe. Está sin implementar,
+pero ya **no** es una incógnita: `tools/stt-probe` la resolvió en CI.
+
+```
+PASA   transformers 3.8.1  onnx-community/whisper-tiny   cargó 2669 ms
+PASA   transformers 3.8.1  Xenova/whisper-tiny           cargó 1391 ms
+FALLA  transformers 4.2.0  onnx-community/whisper-tiny   TransposeDQWeightsForMatMulNBits
+FALLA  transformers 4.2.0  Xenova/whisper-tiny           (mismo error)
+```
+
+Whisper carga y transcribe con transformers **3.8.1**. Lo determinante es la
+versión de la librería — y con ella la de onnxruntime — no el formato del
+export: los repos modernos `onnx-community/*` fallan igual que los antiguos
+bajo la 4.2.0. Esa suposición, que el formato era la variable, es justo la que
+el probe refutó.
+
+Coste de añadirla: un segundo runtime conviviendo con Bergamot
+(transformers.js + onnxruntime wasm) más el modelo, del orden de 60-70 MB sobre
+los 21 MB actuales. Y `whisper-tiny` transcribe con bastantes errores, que
+luego se traducen: los fallos se acumulan.
 
 La **lectura en voz alta** sí está, vía `speechSynthesis`: cero bytes, pero
 depende de las voces instaladas en el sistema. Ajustes indica cuáles faltan.
