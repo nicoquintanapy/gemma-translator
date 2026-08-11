@@ -73,6 +73,21 @@ To deploy as a permanent systemd kiosk service on a Raspberry Pi 5 (8GB):
 ```
 This automated script installs Debian audio/venv packages, sets up the Python environment, builds production UI assets, downloads the LiteRT model, registers the systemd unit from `deploy/gemma-translator.service`, and configures LXDE GUI autostart (`~/.config/lxsession/rpd-x/autostart`) to launch Chromium in kiosk mode pointing to `http://localhost:3000`.
 
+## Browser-Only Web App (`web/`)
+
+Alongside the Raspberry Pi kiosk, `web/` contains a standalone web app that runs
+the whole translation pipeline **inside the browser** — no Python server, no
+LiteRT-LM process. It downloads its models once, stores them in Cache Storage,
+and works offline from then on as an installable PWA.
+
+It does not reuse the kiosk's inference stack, because none of it can execute in
+a browser: NLLB-200 distilled 600M (int8, via onnxruntime-web) replaces Gemma 4
+E2B for translation, Whisper replaces the English-only Moonshine for speech
+recognition, and the operating system's own voices handle playback.
+
+See [`web/README.md`](web/README.md) for setup, deployment headers, and the full
+rationale.
+
 ## Project Structure
 
 - `frontend/` - React (Vite) web frontend (`index.html`, `src/`, styles, and Vite configuration).
