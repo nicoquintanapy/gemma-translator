@@ -15,14 +15,19 @@
 import { chromium } from "playwright"
 import { spawn } from "node:child_process"
 
-const CANDIDATES = [
-  // Modern exports, built for current onnxruntime. Most likely to load.
-  { repo: "onnx-community/whisper-tiny", dtype: "q8" },
-  { repo: "onnx-community/whisper-base", dtype: "q8" },
-  // The legacy-era exports. These are the family that failed for translation
-  // with "Missing required scale"; worth knowing whether Whisper's differ.
-  { repo: "Xenova/whisper-tiny", dtype: "q8" },
-]
+// transformers 4.2.0 was already shown to fail on all three repos with
+// "Missing required scale" — the same optimizer that broke translation. The
+// open question is whether 3.8.1, whose onnxruntime predates that optimizer,
+// gets past it. Both are run so the comparison is in one output.
+const CANDIDATES = []
+for (const lib of ["3.8.1", "4.2.0"]) {
+  for (const repo of [
+    "onnx-community/whisper-tiny",
+    "Xenova/whisper-tiny",
+  ]) {
+    CANDIDATES.push({ lib, repo, dtype: "q8" })
+  }
+}
 
 // Nunca "ignore": si el servidor no arranca, su error es justo el dato que
 // hace falta, y silenciarlo obliga a adivinar.
@@ -61,7 +66,7 @@ console.log("crossOriginIsolated:", await page.evaluate(() => globalThis.crossOr
 
 const results = []
 for (const candidate of CANDIDATES) {
-  console.log(`\n--- ${candidate.repo} (${candidate.dtype}) ---`)
+  console.log(`\n--- transformers ${candidate.lib} · ${candidate.repo} (${candidate.dtype}) ---`)
   const result = await page.evaluate((c) => window.runProbe(c), candidate)
   results.push({ ...candidate, ...result })
   console.log(
@@ -76,7 +81,7 @@ server.kill("SIGKILL")
 
 console.log("\n================ RESUMEN ================")
 for (const r of results) {
-  console.log(`${r.ok ? "PASA " : "FALLA"}  ${r.repo}`)
+  console.log(`${r.ok ? "PASA " : "FALLA"}  transformers ${r.lib}  ${r.repo}${r.ok ? "" : `  <- ${r.error.slice(0, 90)}`}`)
 }
 const anyPass = results.some((r) => r.ok)
 console.log(anyPass ? "\nAl menos un modelo carga: la voz es viable." : "\nNinguno carga: hay que cambiar de motor STT.")

@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Answers one question in CI: can onnxruntime-web actually build a Whisper session in a browser? See probe.mjs.",
   "dependencies": {
-    "@huggingface/transformers": "4.2.0"
+    "transformers4": "npm:@huggingface/transformers@4.2.0",
+    "transformers3": "npm:@huggingface/transformers@3.8.1"
   },
   "devDependencies": {
     "playwright": "^1.55.0"
