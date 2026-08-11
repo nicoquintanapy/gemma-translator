@@ -12,11 +12,15 @@ import { extname, join, normalize } from "node:path"
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json" }
 
 createServer(async (req, res) => {
-  const path = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname)).replace(/^(\.\.[/\\])+/, "")
+  const requested = normalize(decodeURIComponent(new URL(req.url, "http://x").pathname)).replace(/^(\.\.[/\\])+/, "")
+  // Resolve the file first, then type it: deriving the content type from the
+  // request path serves "/" as octet-stream, which a browser downloads instead
+  // of rendering.
+  const file = requested === "/" ? "index.html" : requested
   try {
-    const body = await readFile(join(process.cwd(), path === "/" ? "index.html" : path))
+    const body = await readFile(join(process.cwd(), file))
     res.writeHead(200, {
-      "Content-Type": TYPES[extname(path)] ?? "application/octet-stream",
+      "Content-Type": TYPES[extname(file)] ?? "application/octet-stream",
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "credentialless",
     })

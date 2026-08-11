@@ -47,48 +47,28 @@ if (!up) {
   process.exit(1)
 }
 
-const browser = await chromium.launch({ args: ["--no-sandbox"] })
+const browser = await chromium.launch({
+  // En CI se usa el Chromium que instala Playwright; en local, el preinstalado.
+  executablePath: process.env.PW_CHROME || undefined,
+  args: ["--no-sandbox"],
+})
 const page = await (await browser.newContext()).newPage()
 page.on("pageerror", (e) => console.log("  [pageerror]", e.message))
 
+await page.goto("http://127.0.0.1:4192/", { waitUntil: "load" })
+await page.waitForFunction(() => window.probeReady === true, null, { timeout: 30000 })
 console.log("crossOriginIsolated:", await page.evaluate(() => globalThis.crossOriginIsolated))
 
 const results = []
 for (const candidate of CANDIDATES) {
   console.log(`\n--- ${candidate.repo} (${candidate.dtype}) ---`)
-  const result = await page.evaluate(async ({ repo, dtype }) => {
-    const started = performance.now()
-    try {
-      const { pipeline } = await import(
-        "/node_modules/@huggingface/transformers/dist/transformers.web.js"
-      )
-      const transcriber = await pipeline("automatic-speech-recognition", repo, {
-        device: "wasm",
-        dtype,
-      })
-      const loadedMs = Math.round(performance.now() - started)
-
-      // One second of quiet 16 kHz audio. Accuracy is not what is being tested
-      // — whether onnxruntime will build and run the graph at all is.
-      const audio = new Float32Array(16000)
-      for (let i = 0; i < audio.length; i++) {
-        audio[i] = Math.sin(i / 20) * 0.02
-      }
-      const output = await transcriber(audio, { language: "spanish", task: "transcribe" })
-
-      return {
-        ok: true,
-        loadedMs,
-        totalMs: Math.round(performance.now() - started),
-        text: (output?.text ?? "").slice(0, 80),
-      }
-    } catch (error) {
-      return { ok: false, error: String(error?.message ?? error).slice(0, 300) }
-    }
-  }, candidate)
-
+  const result = await page.evaluate((c) => window.runProbe(c), candidate)
   results.push({ ...candidate, ...result })
-  console.log(result.ok ? `  OK  cargado en ${result.loadedMs} ms, transcribió en ${result.totalMs} ms · texto: ${JSON.stringify(result.text)}` : `  FALLO: ${result.error}`)
+  console.log(
+    result.ok
+      ? `  OK  cargado en ${result.loadedMs} ms, transcribió en ${result.totalMs} ms · texto: ${JSON.stringify(result.text)}`
+      : `  FALLO: ${result.error}`,
+  )
 }
 
 await browser.close()
