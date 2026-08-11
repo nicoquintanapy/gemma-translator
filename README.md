@@ -75,18 +75,19 @@ This automated script installs Debian audio/venv packages, sets up the Python en
 
 ## Browser-Only Web App (`web/`)
 
-Alongside the Raspberry Pi kiosk, `web/` contains a standalone web app that runs
-the whole translation pipeline **inside the browser** — no Python server, no
-LiteRT-LM process. It downloads its models once, stores them in Cache Storage,
-and works offline from then on as an installable PWA.
+Alongside the Raspberry Pi kiosk, `web/` contains a standalone text translator
+that runs entirely **inside the browser** — no Python server, no LiteRT-LM
+process. It downloads its models once, stores them in Cache Storage, and works
+with the network gone as an installable PWA.
 
-It does not reuse the kiosk's inference stack, because none of it can execute in
-a browser: NLLB-200 distilled 600M (int8, via onnxruntime-web) replaces Gemma 4
-E2B for translation, Whisper replaces the English-only Moonshine for speech
-recognition, and the operating system's own voices handle playback.
+It uses [Bergamot](https://github.com/browsermt/bergamot-translator) — Marian
+NMT compiled to WASM, the engine Firefox ships for page translation — rather
+than the kiosk's stack, none of which can execute in a browser. Models are about
+16 MB per direction against Gemma 4 E2B's 2.6 GB.
 
-See [`web/README.md`](web/README.md) for setup, deployment headers, and the full
-rationale.
+Verified by killing the server and translating anyway; see
+[`web/README.md`](web/README.md) for that test, the setup, and the deployment
+headers.
 
 ## Project Structure
 

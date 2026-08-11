@@ -1,31 +1,35 @@
 # Traductor offline en el navegador
 
-Traductor de voz y texto que descarga sus modelos una vez, los guarda en el
-navegador y a partir de ahí funciona **sin servidor y sin conexión**. No hay
-backend: toda la inferencia ocurre en Web Workers dentro de la pestaña.
+Traductor de texto que descarga sus modelos una vez, los guarda en el navegador
+y a partir de ahí funciona **sin servidor y sin conexión**. No hay backend: la
+traducción entera ocurre dentro de la pestaña.
 
 Es una app independiente dentro de este repositorio. No sustituye al kiosco de
 Raspberry Pi de `frontend/` + `backend/`, que sigue funcionando igual.
 
-## Por qué no reutiliza el motor del kiosco
+## Qué motor usa y por qué
+
+[Bergamot](https://github.com/browsermt/bergamot-translator): Marian NMT
+compilado a WASM, el mismo motor que Firefox lleva embebido para traducir
+páginas. Modelos de ~16 MB por dirección, engine de 5 MB.
 
 El proyecto original es "offline" en el sentido de *sin internet, pero con
 servidores locales*: un binario nativo de LiteRT-LM sirviendo Gemma 4 E2B en el
-puerto 9379 y un `http.server` de Python con Moonshine para voz. Nada de eso
-puede ejecutarse en un navegador, así que la capa de inferencia se reescribió
-por completo:
+puerto 9379 y un `http.server` de Python para voz. Nada de eso puede ejecutarse
+en un navegador.
 
-| Capa | Kiosco (Raspberry Pi) | Esta app (navegador) |
+| Capa | Kiosco (Raspberry Pi) | Esta app |
 | :--- | :--- | :--- |
-| Traducción | Gemma 4 E2B vía LiteRT-LM (~2.6 GB, proceso nativo) | NLLB-200 distilled 600M int8 vía onnxruntime-web (~350 MB) |
-| Voz → texto | Moonshine (Python, solo inglés) | Whisper base/tiny int8 (multilingüe) |
+| Traducción | Gemma 4 E2B vía LiteRT-LM (~2.6 GB, proceso nativo) | Bergamot / Marian WASM (~16 MB por dirección) |
 | Texto → voz | moonshine-voice (Python) | `speechSynthesis` (voces del sistema) |
-| Transporte | `fetch` a `localhost:3000` | Web Workers, mismo origen |
+| Transporte | `fetch` a `localhost:3000` | ninguno; todo en la pestaña |
 
-Se eligió NLLB en lugar de un LLM generalista porque es un modelo de traducción
-dedicado: recibe los idiomas de origen y destino como etiquetas FLORES-200 y
-emite la traducción directamente. No hace falta *prompt*, ni pedirle JSON, ni
-tolerar que se salga del formato — y ocupa una fracción de lo que ocupa Gemma.
+Antes de Bergamot se intentó transformers.js con NLLB-200 y Opus-MT en ONNX. No
+funcionó: onnxruntime-web rechazaba los grafos cuantizados que publican esos
+repos (`TransposeDQWeightsForMatMulNBits: Missing required scale`), y además
+HuggingFace no era alcanzable desde el entorno donde se desarrollaba, así que la
+carga del modelo nunca llegó a ejecutarse ni una vez. Bergamot se eligió porque
+es más pequeño, está probado en producción, y **se puede ejecutar y verificar**.
 
 ## Uso
 
@@ -35,211 +39,135 @@ npm install
 npm run dev        # http://localhost:5174
 ```
 
-Producción:
+`predev` y `prebuild` ejecutan `scripts/prepare-assets.mjs`, que copia el motor
+a `public/bergamot/` y descarga los modelos a `public/models/`. Ambos están en
+`.gitignore`: se regeneran, no se commitean.
+
+Para cambiar qué idiomas se incluyen:
 
 ```bash
-npm run build      # genera dist/
-npm run preview
+TRANSLATION_LANGUAGES=es,en,pt npm run build
 ```
 
-`npm run dev` y `npm run build` ejecutan antes `scripts/copy-ort.mjs`, que copia
-el runtime WASM de onnxruntime a `public/ort/`. Es imprescindible: por defecto
-transformers.js lo descarga de un CDN en cada arranque en frío, lo que rompería
-el funcionamiento offline. Esos archivos están en `.gitignore` porque se
-regeneran desde `node_modules`.
+## Por qué los modelos se sirven desde el propio sitio
+
+No es una optimización, es un requisito. Los buckets de Google Cloud Storage que
+publican los modelos de Bergamot **no envían cabeceras CORS**, así que un
+navegador en otro origen no puede descargarlos. Comprobado:
+
+```
+$ curl -D- -H "Origin: https://ejemplo.github.io" \
+    https://storage.googleapis.com/bergamot-models-sandbox/0.3.3/esen/vocab.esen.spm
+HTTP/2 200
+content-type: application/octet-stream
+(sin access-control-allow-origin)
+```
+
+Servirlos nosotros lo resuelve y de paso elimina la dependencia de que un bucket
+ajeno siga en pie. El CI los descarga en tiempo de build y los mete en el
+artefacto, con `actions/cache` para no repetir la descarga en cada push.
+
+## Cómo se guarda todo
+
+- Los modelos van a **Cache Storage**, bucket `bergamot-models`. La app los
+  escribe ahí directamente durante la descarga (con progreso), y el service
+  worker sirve desde ese mismo bucket — así un fichero traído por cualquiera de
+  las dos vías satisface a la otra.
+- El motor WASM y el *app shell* los cachea el service worker.
+- Al empezar la descarga se pide `navigator.storage.persist()`; sin él el
+  navegador puede descartar los modelos si se queda sin espacio. Instalar la app
+  como PWA suele bastar. El estado real se ve en Ajustes.
+- Se toma un **wake lock** durante la descarga: un móvil que bloquea la pantalla
+  suspende la pestaña y corta la transferencia, lo que parece un fallo de red.
+- Los ficheros ya presentes se saltan, así que un reintento solo baja lo que
+  falta.
+
+## Verificación
+
+Lo que importa de este proyecto es que funcione sin conexión, así que eso se
+prueba matando el servidor, no simulando:
+
+```
+gate:      «Español → English · un modelo, 21 MB»
+descarga:  completa — 4 ficheros, 20.8 MB en Cache Storage
+con red:   "Hola, ¿dónde está la estación de tren?"
+           → "Hey, where's the train station?"
+
+--- servidor matado (SIGKILL), confirmado con ERR_CONNECTION_REFUSED ---
+
+pestaña NUEVA: "Necesito un médico, por favor."
+               → "I need a doctor, please."
+otra frase:    "El clima está muy agradable hoy."
+               → "The weather is very pleasant today."
+```
+
+Dos trampas que invalidaron versiones anteriores de esta prueba, por si alguien
+la reescribe:
+
+- `context.setOffline(true)` de Playwright **no bloquea localhost**. Hay que
+  matar el proceso.
+- Lanzar el servidor con `npx` deja el proceso real huérfano al matar el
+  envoltorio, así que "offline" se probaba contra un servidor vivo.
+- Esperar a que el panel de salida "tenga texto" deja pasar la traducción
+  anterior como si fuera la nueva. Hay que esperar a que **cambie**.
 
 ## Despliegue
 
-`dist/` es estático: sirve con cualquier hosting. Dos requisitos:
+`dist/` es estático. Dos requisitos:
 
-1. **HTTPS** (o `localhost`). Sin él no hay micrófono ni service worker.
-2. **Cabeceras COOP/COEP**, opcionales pero muy recomendables:
+1. **HTTPS** (o `localhost`), para el service worker.
+2. **Cabeceras COOP/COEP**, recomendables:
 
    ```
    Cross-Origin-Opener-Policy: same-origin
    Cross-Origin-Embedder-Policy: credentialless
    ```
 
-   Activan `SharedArrayBuffer`, que es lo que permite a onnxruntime-web usar
-   varios hilos. Sin ellas la app funciona igual, pero en un solo hilo y bastante
-   más lenta. Se usa `credentialless` y no `require-corp` porque este último
-   bloquearía la descarga de los modelos desde huggingface.co.
-
-   La app muestra en Ajustes → «Motor activo» si el aislamiento está activo.
+   Habilitan `SharedArrayBuffer` y con ello los hilos del motor. Sin ellas
+   funciona, más lento.
 
 ### GitHub Pages
 
-`.github/workflows/deploy-web.yml` publica `web/dist` en GitHub Pages en cada
-push a `main` que toque `web/`, compilando con `VITE_BASE` apuntando al subpath
-del repositorio.
+`.github/workflows/deploy-web.yml` publica en cada push a `main` que toque
+`web/`. Requiere un ajuste manual una vez: **Settings → Pages → Source: «GitHub
+Actions»** (el `GITHUB_TOKEN` por defecto no puede crear el sitio).
 
-Requiere un ajuste manual una sola vez: **Settings → Pages → Build and
-deployment → Source: «GitHub Actions»**. El workflow no puede activarlo por sí
-mismo porque el `GITHUB_TOKEN` por defecto no tiene permiso para crear el sitio
-de Pages.
-
-Salvedad conocida: **GitHub Pages no permite enviar cabeceras propias**, así que
-allí no hay aislamiento cross-origin y la inferencia corre en un solo hilo. Es
-perfectamente usable para probar, pero para uso real conviene un hosting donde
-puedas definir COOP/COEP (Netlify, Vercel, Cloudflare Pages, nginx…).
-
-## Dos motores de traducción
-
-| | Ligero (Opus-MT) — por defecto | Universal (NLLB-200) |
-| :--- | :--- | :--- |
-| Descarga | ~90 MB por dirección | 350 MB una vez |
-| Cobertura | los pares que descargues | 200 idiomas, cualquier combinación |
-| Par nuevo | otra descarga | 0 MB |
-| Pares sin publicar | pivota por inglés | no aplica |
-
-**Por qué elegir idiomas no reduce NLLB.** NLLB-200 es un único modelo
-monolítico: el idioma se selecciona con un token de entrada (`spa_Latn`), no
-cargando pesos distintos. De sus ~615M de parámetros, unos 260M son la tabla de
-embeddings del vocabulario multilingüe de 256k tokens — el bloque más grande, y
-compartido por los 200 idiomas. Recortar la lista de `languages.js` a dos
-idiomas ahorraría exactamente cero bytes. Por eso el motor ligero es un cambio
-de familia de modelo, no un filtro.
-
-**Disponibilidad de pares.** Helsinki-NLP no publicó todas las combinaciones, y
-no todas tienen build ONNX. En vez de codificar una lista de repos y confiar,
-`src/lib/translationPacks.js` **sondea** el Hub y cachea el resultado. Un par
-directo que no exista se resuelve pivotando por inglés (dos paquetes); si
-tampoco hay ruta, se dice explícitamente. El sondeo distingue «no publicado» (un
-404 real) de «no se pudo comprobar» (sin conexión), porque decirle a alguien sin
-red que su idioma no existe es a la vez falso e inútil.
-
-Los paquetes residentes se mantienen en un LRU de 3 en el worker, suficiente
-para una ruta con pivote sin recargar constantemente.
-
-## Cómo se guardan los modelos
-
-- Los pesos van a **Cache Storage**, bajo la clave `offline-translator-models`.
-- Al iniciar la descarga se llama a `navigator.storage.persist()` para pedir
-  almacenamiento persistente; sin él el navegador puede descartar los modelos si
-  se queda sin espacio. Instalar la app como PWA suele bastar para que se
-  conceda. El estado real se muestra en Ajustes.
-- El *app shell* lo precachea un service worker; el runtime WASM se cachea bajo
-  demanda durante la descarga inicial.
-- «Borrar modelos descargados» en Ajustes vacía la caché por completo.
-
-**Reanudación byte a byte.** transformers.js solo escribe un archivo en Cache
-Storage cuando ha llegado entero, así que un corte al 90 % de un archivo de
-60 MB no dejaba nada y volvía a empezar de cero. `workers/resumableFetch.js`
-envuelve el `fetch` global: los bytes se van guardando en OPFS a medida que
-llegan y un reintento continúa con una petición `Range` desde donde quedó. La
-respuesta que ve transformers.js es indistinguible de una normal — primero
-emite lo que ya está en disco y luego sigue de la red — así que su propio
-reporte de progreso sigue funcionando.
-
-Cualquier fallo en ese camino cae de vuelta a un `fetch` normal: un bug ahí
-tiene que degradar al comportamiento anterior, nunca romper la descarga.
-
-Verificado en Chromium con la red estrangulada: cortando a los 2 MB de un
-archivo de 8 MB quedan 2 MB en OPFS, el reintento completa los 8 MB y el hash
-coincide byte a byte con la descarga íntegra.
-
-*Nota sobre localStorage:* no sirve para esto. Tiene un límite de ~5-10 MB, es
-síncrono y solo almacena cadenas. Cache Storage y OPFS son las APIs pensadas
-para binarios grandes.
-
-## Atajos
-
-| Tecla | Acción |
-| :--- | :--- |
-| **Barra espaciadora** | Empezar / detener grabación (ignorada al escribir) |
-| **Ctrl/⌘ + Enter** | Traducir ahora |
-
-Al dejar de escribir, la traducción se lanza sola tras una breve pausa.
+GitHub Pages no permite cabeceras propias, así que allí no hay aislamiento
+cross-origin y el motor va en un solo hilo. Usable; para uso real conviene un
+hosting donde puedas definir COOP/COEP.
 
 ## Idiomas
 
-20 idiomas en `src/lib/languages.js`, cada uno con sus tres códigos (FLORES-200
-para NLLB, nombre en inglés para Whisper, BCP-47 para la síntesis de voz).
-Añadir uno es añadir una fila.
+El desplegable se construye a partir de `public/models/registry.json`, es decir,
+de lo que realmente se incluyó en el build. Un idioma de `src/lib/languages.js`
+sin modelo no se ofrece.
 
-Dos limitaciones que la interfaz muestra explícitamente en vez de fallar en
-silencio:
+Todos los modelos de Bergamot son `xx↔en`, así que los pares que no pasan por
+inglés se resuelven **pivotando**: dos modelos y dos traducciones encadenadas.
+Funciona, pero el texto pasa dos veces por el motor y pierde algo de calidad; la
+interfaz lo indica en la barra de estado.
 
-- **Guaraní** lo traduce NLLB pero Whisper no lo transcribe: el botón de
-  micrófono se deshabilita y explica por qué. Escribiendo funciona.
-- La **lectura en voz alta** depende de las voces instaladas en el sistema
-  operativo, no de un modelo descargado. Ajustes indica para qué idiomas falta
-  voz en el dispositivo actual.
+## Lo que no hace
 
-## Móviles
+**Entrada por voz.** Bergamot traduce, no transcribe. La versión anterior
+intentaba Whisper sobre onnxruntime-web, que es exactamente el camino que no
+funcionaba. Queda como problema abierto.
 
-El perfil por defecto en móvil es más conservador: motor ligero, modelo de voz
-`tiny` y **reconocimiento de voz desactivado**, lo que deja la primera descarga
-en **~90 MB**. Todo se activa con un toggle.
-
-La razón es concreta: en iPhone y iPad todos los navegadores son WebKit por
-debajo, y el límite de memoria por pestaña es bajo. Cargar los dos modelos a la
-vez lo roza, y el sistema mata la pestaña — lo que el usuario percibe como
-«se cortó la conexión», no como un fallo de memoria. Tres mitigaciones:
-
-- Los modelos se cargan **secuencialmente**, no en paralelo, para no duplicar el
-  pico de memoria durante la inicialización.
-- Se toma un **wake lock** durante la descarga, para que la pantalla no se
-  apague y el sistema no suspenda la pestaña a medias.
-- Reintentar **continúa desde donde quedó**: los archivos ya completos están en
-  Cache Storage y no se vuelven a bajar.
-
-## Rendimiento
-
-Por defecto la inferencia corre en **CPU (WASM)**: los pesos publicados son int8
-y la CPU los ejecuta de forma nativa. WebGPU está disponible como opción
-experimental en Ajustes — el soporte de kernels int8 en modelos
-codificador-decodificador varía según el navegador, así que si falla la
-inicialización se vuelve a CPU automáticamente y se avisa en pantalla.
-
-## Compatibilidad del runtime con los pesos cuantizados
-
-**`@huggingface/transformers` está fijado a la 3.8.1 a propósito.** No es
-conservadurismo: la v4 trae onnxruntime-web 1.26, que ejecuta un transformador
-QDQ — `TransposeDQWeightsForMatMulNBits` — en el nivel de optimización
-*extended*. Los ONNX cuantizados que publican los repos `Xenova/*` se generaron
-antes de eso y no contienen los inicializadores de escala por peso que ese paso
-espera, así que crear la sesión falla con:
-
-```
-Missing required scale: model.shared.weight_merged_0_scale
-```
-
-No es un fallo de descarga: los pesos están bien y ya en caché. Bajar el nivel
-de optimización no bastó. La 3.8.1 trae onnxruntime-web **1.22**, anterior a ese
-transformador — verificado: el símbolo no aparece en sus binarios wasm.
-
-Dos consecuencias de la v3 que el código contempla:
-
-- No existe `env.cacheKey`; el nombre de la caché está fijado a
-  `transformers-cache`, así que «borrar modelos» apunta ahí.
-- Solo usa la variante `jsep` del runtime, que sirve tanto CPU como WebGPU.
-  `scripts/copy-ort.mjs` descubre qué archivos trae la librería en vez de
-  codificarlos, y **limpia el destino antes de copiar**: `wasmPaths` apunta al
-  directorio entero, y dejar un binario de otra versión ahí arriesga que el
-  cargador tome un build descoordinado.
-
-El escalonado de optimización (`completa` → `básica` → `sin optimizar`) se
-mantiene como defensa en profundidad, junto con el reintento opt-in con pesos
-sin cuantizar (`fp32`) que ofrece la tarjeta de error.
+La **lectura en voz alta** sí está, vía `speechSynthesis`: cero bytes, pero
+depende de las voces instaladas en el sistema. Ajustes indica cuáles faltan.
 
 ## Estructura
 
 ```
 src/
-  workers/
-    runtime.js           configuración compartida de transformers.js + RPC
-    translate.worker.js  NLLB-200
-    stt.worker.js        Whisper
   lib/
-    engineConfig.js      qué se descarga y dónde se guarda
-    languages.js         tabla de idiomas y sus tres códigos
-    workerClient.js      RPC con promesas sobre Worker
-    storage.js           persistencia, cuota y limpieza de caché
-    tts.js               síntesis de voz del sistema
+    models.js      registro, rutas entre idiomas, descarga y caché
+    languages.js   nombres y etiquetas de voz
+    storage.js     persistencia y cuota
+    tts.js         síntesis de voz del sistema
+    device.js      wake lock y detección de móvil
   hooks/
-    useEngine.js         ciclo de vida de los dos workers y la descarga
-    useAudioRecorder.js  micrófono → Float32 PCM mono a 16 kHz
-  components/            ModelGate, LanguagePicker, MicButton, SettingsSheet, StatusBar
-scripts/copy-ort.mjs     auto-aloja el runtime WASM de onnxruntime
+    useTranslator.js   motor Bergamot y ciclo de vida de la descarga
+  components/          ModelGate, LanguagePicker, SettingsSheet, StatusBar
+scripts/prepare-assets.mjs   copia el motor y descarga los modelos
 ```

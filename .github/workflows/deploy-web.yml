@@ -18,6 +18,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  # Languages to bundle. Every model is paired with English, so this list is
+  # doubled into pairs; upstream publishes 29 pairs in total.
+  TRANSLATION_LANGUAGES: es,en,pt,fr,de,it
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -41,6 +46,15 @@ jobs:
       - name: Install dependencies
         working-directory: web
         run: npm ci
+
+      # The models are a couple of hundred megabytes fetched from Google Cloud
+      # Storage. They never change for a given language set, so cache them and
+      # let prepare-assets skip whatever is already on disk.
+      - name: Cache translation models
+        uses: actions/cache@v4
+        with:
+          path: web/public/models
+          key: models-${{ env.TRANSLATION_LANGUAGES }}-${{ hashFiles('web/scripts/prepare-assets.mjs') }}
 
       - name: Build
         working-directory: web

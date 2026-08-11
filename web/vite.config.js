@@ -32,22 +32,30 @@ export default defineConfig({
       // service worker install on first visit. It is cached on demand instead
       // (see runtimeCaching below), during the explicit model download step.
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
-        globIgnores: ["**/ort/**"],
+        globPatterns: ["**/*.{js,css,html,svg,woff2,json}"],
+        // Models are cached on demand by the app, not precached: bundling
+        // hundreds of megabytes into the install step would stall first load.
+        globIgnores: ["**/models/**"],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         navigateFallback: `${base}index.html`,
         runtimeCaching: [
           {
-            // Self-hosted onnxruntime-web binaries. Two locations matter: the
-            // copies under /ort/ that `wasmPaths` points at, and the .wasm
-            // Vite emits into /assets/ from transformers.js' own imports.
-            urlPattern: ({ url }) =>
-              url.pathname.includes("/ort/") ||
-              url.pathname.endsWith(".wasm") ||
-              url.pathname.endsWith(".mjs"),
+            // Model files. Same cache name the app writes to directly, so a
+            // file fetched by either path satisfies the other.
+            urlPattern: ({ url }) => url.pathname.includes("/models/"),
             handler: "CacheFirst",
             options: {
-              cacheName: "ort-runtime",
+              cacheName: "bergamot-models",
+              expiration: { maxEntries: 200 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // The WASM engine and its worker glue.
+            urlPattern: ({ url }) => url.pathname.includes("/bergamot/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "bergamot-engine",
               expiration: { maxEntries: 12 },
               cacheableResponse: { statuses: [0, 200] },
             },
@@ -74,7 +82,5 @@ export default defineConfig({
   worker: { format: "es" },
   server: { host: "0.0.0.0", port: 5174, headers: isolationHeaders },
   preview: { host: "0.0.0.0", port: 4174, headers: isolationHeaders },
-  // transformers.js is loaded lazily inside the workers; keeping it out of the
-  // optimizer's eager scan avoids a large dev-server prebundle on boot.
-  optimizeDeps: { exclude: ["@huggingface/transformers"] },
+
 })

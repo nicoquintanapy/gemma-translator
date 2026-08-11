@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-ort.mjs",
+    "predev": "node scripts/prepare-assets.mjs",
     "dev": "vite",
-    "prebuild": "node scripts/copy-ort.mjs",
+    "prebuild": "node scripts/prepare-assets.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@huggingface/transformers": "3.8.1",
+    "@browsermt/bergamot-translator": "^0.4.9",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
