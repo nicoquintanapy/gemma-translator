@@ -8,6 +8,23 @@ export const MODEL_CACHE_KEY = "offline-translator-models"
 // transformers.js also keeps a small integrity-hash cache alongside the models.
 export const AUX_CACHE_KEYS = ["experimental_transformers-hash-cache"]
 
+// The two translation strategies. "opus" trades universal coverage for a much
+// smaller footprint — the right default on phones, where the multilingual
+// embedding table is the single biggest thing standing between the user and a
+// working app.
+export const TRANSLATION_ENGINES = {
+  opus: {
+    label: "Ligero — un paquete por par de idiomas",
+    detail: "~90 MB por dirección. Solo descargas los pares que uses.",
+  },
+  nllb: {
+    label: "Universal — un solo modelo, 200 idiomas",
+    detail: "350 MB una vez y cualquier combinación funciona para siempre.",
+  },
+}
+
+export const DEFAULT_TRANSLATION_ENGINE = "opus"
+
 export const TRANSLATION_MODEL = {
   id: "Xenova/nllb-200-distilled-600M",
   label: "NLLB-200 distilled 600M",

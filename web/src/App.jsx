@@ -4,10 +4,15 @@ import LanguagePicker from "./components/LanguagePicker.jsx"
 import MicButton from "./components/MicButton.jsx"
 import SettingsSheet from "./components/SettingsSheet.jsx"
 import StatusBar from "./components/StatusBar.jsx"
+import PackPrompt from "./components/PackPrompt.jsx"
 import { useAudioRecorder } from "./hooks/useAudioRecorder.js"
 import { useEngine } from "./hooks/useEngine.js"
 import { canTranscribe, getLanguage, isRtl } from "./lib/languages.js"
-import { DEFAULT_DEVICE, DEFAULT_STT_SIZE } from "./lib/engineConfig.js"
+import {
+  DEFAULT_DEVICE,
+  DEFAULT_STT_SIZE,
+  DEFAULT_TRANSLATION_ENGINE,
+} from "./lib/engineConfig.js"
 import { getModelCacheSize, requestPersistentStorage } from "./lib/storage.js"
 import { isMobileDevice } from "./lib/device.js"
 import { speak, stopSpeaking } from "./lib/tts.js"
@@ -18,6 +23,7 @@ const SETTINGS_KEY = "offline-translator-settings"
 // recognition off entirely, so the first run is ~350 MB rather than ~500 MB.
 // Both are one toggle away and persist once changed.
 const DEFAULT_SETTINGS = {
+  translationEngine: DEFAULT_TRANSLATION_ENGINE,
   device: DEFAULT_DEVICE,
   sttSize: isMobileDevice() ? "tiny" : DEFAULT_STT_SIZE,
   enableVoice: !isMobileDevice(),
@@ -51,6 +57,7 @@ export default function App() {
     device: settings.device,
     sttSize: settings.sttSize,
     enableVoice: settings.enableVoice,
+    translationEngine: settings.translationEngine,
   })
   const recorder = useAudioRecorder()
 
@@ -63,6 +70,8 @@ export default function App() {
   // Key of the last completed translation, so the debounced auto-run does not
   // repeat work already triggered explicitly (e.g. right after a voice input).
   const lastKeyRef = useRef("")
+  // Read inside the debounce effect without making it depend on route identity.
+  const routeReadyRef = useRef(true)
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
@@ -82,6 +91,10 @@ export default function App() {
     navigator.storage?.persisted?.().then(setPersisted).catch(() => {})
     getModelCacheSize().then(setCachedBytes)
   }, [engine.status])
+
+  const routeReady =
+    settings.translationEngine !== "opus" || engine.routeState.status === "ready"
+  routeReadyRef.current = routeReady
 
   const updateSettings = useCallback((patch) => {
     setSettings((prev) => ({ ...prev, ...patch }))
@@ -144,10 +157,18 @@ export default function App() {
     [runTranslation, settings.autoSpeak],
   )
 
+  // Whenever the pair changes, check whether its packs are present. This only
+  // probes — downloading is an explicit action, since each pair costs data.
+  useEffect(() => {
+    if (engine.status !== "ready") return
+    engine.prepareRoute(settings.srcLang, settings.tgtLang)
+  }, [engine.status, engine.prepareRoute, settings.srcLang, settings.tgtLang])
+
   // Auto-translate shortly after typing stops, so the common case needs no
   // button press; the explicit button stays for keyboard-free confirmation.
   useEffect(() => {
     if (engine.status !== "ready" || !sourceText.trim()) return
+    if (!routeReadyRef.current) return
     const timer = setTimeout(() => runTranslation(sourceText, { speakResult: false }), 800)
     return () => clearTimeout(timer)
   }, [sourceText, engine.status, runTranslation])
@@ -217,14 +238,14 @@ export default function App() {
     stopSpeaking()
     await engine.reset()
     setSettingsOpen(false)
-    await engine.load()
-  }, [engine])
+    await engine.load({ srcLang: settings.srcLang, tgtLang: settings.tgtLang })
+  }, [engine, settings.srcLang, settings.tgtLang])
 
   const startEngine = useCallback(async () => {
     await requestPersistentStorage()
-    await engine.load()
+    await engine.load({ srcLang: settings.srcLang, tgtLang: settings.tgtLang })
     setPersisted((await navigator.storage?.persisted?.()) ?? false)
-  }, [engine])
+  }, [engine, settings.srcLang, settings.tgtLang])
 
   if (engine.status !== "ready") {
     return (
@@ -236,6 +257,10 @@ export default function App() {
         sttSize={settings.sttSize}
         enableVoice={settings.enableVoice}
         onToggleVoice={(value) => updateSettings({ enableVoice: value })}
+        translationEngine={settings.translationEngine}
+        onChangeEngine={(value) => updateSettings({ translationEngine: value })}
+        srcLang={settings.srcLang}
+        tgtLang={settings.tgtLang}
         cachedBytes={cachedBytes}
         onStart={startEngine}
         onRetry={startEngine}
@@ -304,7 +329,7 @@ export default function App() {
             <button
               className="btn btn-primary"
               onClick={() => translateNow(sourceText)}
-              disabled={!sourceText.trim() || isTranslating}
+              disabled={!sourceText.trim() || isTranslating || !routeReady}
             >
               {isTranslating ? "Traduciendo…" : "Traducir"}
             </button>
@@ -341,13 +366,31 @@ export default function App() {
               </button>
             </div>
           </div>
-          <div
-            className="pane-text pane-readonly"
-            dir={isRtl(settings.tgtLang) ? "rtl" : "ltr"}
-            aria-live="polite"
-          >
-            {targetText || <span className="placeholder">La traducción aparecerá aquí</span>}
-          </div>
+          {routeReady ? (
+            <div
+              className="pane-text pane-readonly"
+              dir={isRtl(settings.tgtLang) ? "rtl" : "ltr"}
+              aria-live="polite"
+            >
+              {targetText || (
+                <span className="placeholder">La traducción aparecerá aquí</span>
+              )}
+            </div>
+          ) : (
+            <div className="pane-text">
+              <PackPrompt
+                state={engine.routeState}
+                progress={engine.progress}
+                srcLang={settings.srcLang}
+                tgtLang={settings.tgtLang}
+                onDownload={() =>
+                  engine.prepareRoute(settings.srcLang, settings.tgtLang, {
+                    download: true,
+                  })
+                }
+              />
+            </div>
+          )}
         </section>
       </main>
 

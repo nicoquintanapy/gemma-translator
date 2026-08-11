@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react"
 import { formatBytes, getStorageEstimate } from "../lib/storage.js"
-import { STT_MODELS, TRANSLATION_MODEL } from "../lib/engineConfig.js"
+import {
+  STT_MODELS,
+  TRANSLATION_ENGINES,
+  TRANSLATION_MODEL,
+} from "../lib/engineConfig.js"
+import { OPUS_PACK_APPROX_MB } from "../lib/translationPacks.js"
+import { getLanguage } from "../lib/languages.js"
 import { isIos, isMobileDevice } from "../lib/device.js"
 
 // First-run screen. The download is explicit and its cost is stated up front —
@@ -14,12 +20,18 @@ export default function ModelGate({
   sttSize,
   enableVoice,
   onToggleVoice,
+  translationEngine,
+  onChangeEngine,
+  srcLang,
+  tgtLang,
   cachedBytes,
   onStart,
   onRetry,
 }) {
   const stt = STT_MODELS[sttSize] ?? STT_MODELS.base
-  const estimateMb = TRANSLATION_MODEL.approxMb + (enableVoice ? stt.approxMb : 0)
+  const light = translationEngine === "opus"
+  const translationMb = light ? OPUS_PACK_APPROX_MB : TRANSLATION_MODEL.approxMb
+  const estimateMb = translationMb + (enableVoice ? stt.approxMb : 0)
 
   // Warn about a doomed download before the user waits on it, rather than
   // failing with a quota error several hundred megabytes in.
@@ -49,9 +61,15 @@ export default function ModelGate({
 
         <ul className="gate-models">
           <li>
-            <span className="gate-model-name">{TRANSLATION_MODEL.label}</span>
-            <span className="gate-model-role">Traducción · 20 idiomas</span>
-            <span className="gate-model-size">~{TRANSLATION_MODEL.approxMb} MB</span>
+            <span className="gate-model-name">
+              {light ? "Opus-MT" : TRANSLATION_MODEL.label}
+            </span>
+            <span className="gate-model-role">
+              {light
+                ? `Traducción · ${getLanguage(srcLang).label} → ${getLanguage(tgtLang).label}`
+                : "Traducción · 200 idiomas"}
+            </span>
+            <span className="gate-model-size">~{translationMb} MB</span>
           </li>
           <li className={enableVoice ? "" : "gate-model-off"}>
             <span className="gate-model-name">
@@ -109,6 +127,23 @@ export default function ModelGate({
 
         {status === "idle" && (
           <>
+            <label className="field gate-engine">
+              <span>Motor de traducción</span>
+              <select
+                value={translationEngine}
+                onChange={(event) => onChangeEngine(event.target.value)}
+              >
+                {Object.entries(TRANSLATION_ENGINES).map(([value, engine]) => (
+                  <option key={value} value={value}>
+                    {engine.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="gate-hint">
+              {TRANSLATION_ENGINES[translationEngine]?.detail}
+            </p>
+
             <button className="btn btn-primary btn-lg" onClick={onStart}>
               {cachedBytes > 0
                 ? `Cargar modelos (${formatBytes(cachedBytes)} ya en caché)`

@@ -83,6 +83,34 @@ allí no hay aislamiento cross-origin y la inferencia corre en un solo hilo. Es
 perfectamente usable para probar, pero para uso real conviene un hosting donde
 puedas definir COOP/COEP (Netlify, Vercel, Cloudflare Pages, nginx…).
 
+## Dos motores de traducción
+
+| | Ligero (Opus-MT) — por defecto | Universal (NLLB-200) |
+| :--- | :--- | :--- |
+| Descarga | ~90 MB por dirección | 350 MB una vez |
+| Cobertura | los pares que descargues | 200 idiomas, cualquier combinación |
+| Par nuevo | otra descarga | 0 MB |
+| Pares sin publicar | pivota por inglés | no aplica |
+
+**Por qué elegir idiomas no reduce NLLB.** NLLB-200 es un único modelo
+monolítico: el idioma se selecciona con un token de entrada (`spa_Latn`), no
+cargando pesos distintos. De sus ~615M de parámetros, unos 260M son la tabla de
+embeddings del vocabulario multilingüe de 256k tokens — el bloque más grande, y
+compartido por los 200 idiomas. Recortar la lista de `languages.js` a dos
+idiomas ahorraría exactamente cero bytes. Por eso el motor ligero es un cambio
+de familia de modelo, no un filtro.
+
+**Disponibilidad de pares.** Helsinki-NLP no publicó todas las combinaciones, y
+no todas tienen build ONNX. En vez de codificar una lista de repos y confiar,
+`src/lib/translationPacks.js` **sondea** el Hub y cachea el resultado. Un par
+directo que no exista se resuelve pivotando por inglés (dos paquetes); si
+tampoco hay ruta, se dice explícitamente. El sondeo distingue «no publicado» (un
+404 real) de «no se pudo comprobar» (sin conexión), porque decirle a alguien sin
+red que su idioma no existe es a la vez falso e inútil.
+
+Los paquetes residentes se mantienen en un LRU de 3 en el worker, suficiente
+para una ruta con pivote sin recargar constantemente.
+
 ## Cómo se guardan los modelos
 
 - Los pesos van a **Cache Storage**, bajo la clave `offline-translator-models`.
@@ -120,9 +148,9 @@ silencio:
 
 ## Móviles
 
-El perfil por defecto en móvil es más conservador: modelo de voz `tiny` y
-**reconocimiento de voz desactivado**, lo que deja la primera descarga en
-~350 MB en vez de ~500 MB. Ambas cosas se activan con un toggle.
+El perfil por defecto en móvil es más conservador: motor ligero, modelo de voz
+`tiny` y **reconocimiento de voz desactivado**, lo que deja la primera descarga
+en **~90 MB**. Todo se activa con un toggle.
 
 La razón es concreta: en iPhone y iPad todos los navegadores son WebKit por
 debajo, y el límite de memoria por pestaña es bajo. Cargar los dos modelos a la

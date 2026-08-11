@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react"
-import { DEVICE_PREFERENCES, STT_MODELS } from "../lib/engineConfig.js"
+import {
+  DEVICE_PREFERENCES,
+  STT_MODELS,
+  TRANSLATION_ENGINES,
+} from "../lib/engineConfig.js"
 import { clearModelCache, formatBytes, getStorageEstimate } from "../lib/storage.js"
 import { LANGUAGES } from "../lib/languages.js"
 import { isSpeechSupported, listMissingVoices } from "../lib/tts.js"
@@ -39,7 +43,8 @@ export default function SettingsSheet({
   const restartNeeded =
     Boolean(runtime.translate) &&
     (settings.device !== runtime.translate.device ||
-      settings.enableVoice !== Boolean(runtime.stt))
+      settings.enableVoice !== Boolean(runtime.stt) ||
+      settings.translationEngine !== runtime.translate.engine)
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -80,6 +85,34 @@ export default function SettingsSheet({
                       ? ` y ${voices.missing.length - 5} idioma(s) más`
                       : ""
                   }. La traducción escrita funciona igual.`}
+            </p>
+          )}
+        </section>
+
+        <section className="sheet-section">
+          <h3>Motor de traducción</h3>
+          <label className="field">
+            <span>Estrategia</span>
+            <select
+              value={settings.translationEngine}
+              onChange={(event) =>
+                onChange({ translationEngine: event.target.value })
+              }
+            >
+              {Object.entries(TRANSLATION_ENGINES).map(([value, engine]) => (
+                <option key={value} value={value}>
+                  {engine.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="note">
+            {TRANSLATION_ENGINES[settings.translationEngine]?.detail}
+          </p>
+          {settings.translationEngine === "opus" && (
+            <p className="note">
+              Elegir un par nuevo pide confirmación antes de descargar nada. Los
+              pares que no existan directos se resuelven pivotando por inglés.
             </p>
           )}
         </section>

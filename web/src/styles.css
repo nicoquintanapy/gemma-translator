@@ -554,3 +554,33 @@ body {
 .gate-models .row-toggle {
   font-weight: 600;
 }
+
+/* Per-pair download prompt shown in the output pane when the light engine
+   has no packs for the selected language pair. */
+.pack-prompt {
+  display: grid;
+  gap: 0.6rem;
+  justify-items: start;
+  font-size: 0.95rem;
+  color: var(--text-dim);
+}
+
+.pack-prompt strong {
+  color: var(--text);
+}
+
+.pack-prompt p {
+  margin: 0;
+}
+
+.pack-prompt .progress-track {
+  width: 100%;
+}
+
+.pack-prompt-warn strong {
+  color: var(--warn);
+}
+
+.gate-engine {
+  margin-bottom: 0.25rem;
+}
